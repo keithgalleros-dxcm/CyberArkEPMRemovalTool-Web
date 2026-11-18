@@ -85,3 +85,15 @@ but privileged process inspection and vendor logs may expose tokens passed on ve
 - [macOS uninstall](https://docs.cyberark.com/epm/latest/en/content/installation/macos-uninstallagents.htm)
 
 This is an endpoint-local tool, not a central fleet-management server.
+
+## Manual terminal commands
+
+Windows Server/Desktop pages include a process-scoped PowerShell invocation using
+`powershell.exe -NoProfile -ExecutionPolicy Bypass`, a removal script with a masked
+vendor-token prompt, and CMD examples with and without a token. Replace the MSI GUID
+placeholder before running. Policy bypass does not grant elevation or disable EPM protection.
+macOS includes vendor full-uninstall commands with no token or a token file.
+Linux distro pages include read-only OS and package-inventory commands only; the product
+and vendor uninstall procedure must be identified before supplying a Linux removal command.
+Commands are displayed and copied only. Terminal removals are outside the console’s job tracking.
+Regenerate command sections after editing `manual_commands.py` with `python manual_commands.py`.

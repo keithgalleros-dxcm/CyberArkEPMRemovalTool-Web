@@ -9,7 +9,9 @@ Run the connector INSIDE the VM if the VM is the intended endpoint.
 This guide does not execute commands automatically.
 
 PREREQUISITES
-- Python 3.11+ on the portal server AND each endpoint running a connector.
+- Python 3.11+ on the portal server. Endpoint setup detects/provisions Python.
+- Internet access to python.org when a Windows/macOS runtime is missing;
+  Linux uses configured OS package repositories and sudo when required.
 - Official Windows Python: https://www.python.org/downloads/windows/
 - Windows setup: https://docs.python.org/3/using/windows.html
 - No pip packages, Node.js, Docker, .NET SDK or database needed for Python.
@@ -78,65 +80,69 @@ Normal launch:
     py -3 app.py --lan-address 192.168.1.100
 LAN URL: http://192.168.1.100:8765
 
-C. CONNECT A WINDOWS PC OR VM (FIRST TIME)
+C. INSTALL CONNECTOR ON A WINDOWS PC OR VM
 
 Do these steps INSIDE the target Windows PC/VM, not on its VMware host.
-1. Verify Python in that PC's PowerShell:
-       py -3 --version
-2. Open the LAN portal URL and sign in with the portal's LAN access code.
-3. Click Download connector for this PC.
-4. Extract endpoint-connector.zip into your private LOCAL user folder.
-5. Run Start connector.cmd by double-click, or from PowerShell in that folder:
-       & '.\Start connector.cmd'
-   Equivalent direct command:
-       py -3 endpoint_connector.py --config connector.private.json
-6. Keep that console open. The connector opens the paired portal in the
-   default browser. If that browser is not signed in, enter the LAN code.
-7. The portal now shows that endpoint's hostname, OS, agent and privileges.
-   Compare the name with this read-only command INSIDE the VM:
+1. Open http://192.168.1.101:8765 and sign in with the LAN access code.
+2. Select Windows desktop / server and click Install connector.
+3. Open Install-connector.cmd from browser downloads ON THIS PC.
+   The browser cannot run downloaded software silently; opening it is required.
+4. Setup automatically:
+   - Detects an actual Python 3.11+ interpreter.
+   - If missing, downloads/checksums the official private Python runtime for
+     this PC's CPU. No separate Python installation or PATH change required.
+   - Unpacks/copies files into your private per-user application folder.
+   - Starts the connector in the background and creates a Start menu shortcut.
+5. Return to the portal and confirm Connected plus the intended hostname.
+   Compare against this read-only PowerShell command INSIDE the target VM:
        $env:COMPUTERNAME
-8. Click Request administrator access when needed; approve UAC on THIS PC.
-   The connector relaunches elevated and the portal reconnects to it.
-9. Select the matching platform/workspace. Type the endpoint hostname and
-   explicit INSTALL/UNINSTALL confirmation as required before an operation.
+6. Request administrator access when needed; approve UAC on THIS PC.
+7. Explicitly confirm the hostname and INSTALL/UNINSTALL before agent changes.
 
-No inbound firewall rule is required on the endpoint. The connector makes
-outbound requests to the portal. Do not disable browser network protections.
-A private kit is fetched/staged only for an explicit installation. Starting
-or pairing the connector does not install or remove CyberArk automatically.
+No manual ZIP extraction, Python-home copying, or Start connector command.
+Files/logs/setup-info.json: %LOCALAPPDATA%\Dexcom\EPMConnector\<installation-id>
+Reconnect using Start menu > Dexcom Endpoint Connector after reboot.
+No automatic login startup or Windows service is registered.
+Stop only its own process from connector.pid, after all agent jobs finish.
+No inbound endpoint firewall rule is required. Starting a connector never
+installs/removes CyberArk automatically.
 
-D. MACOS / LINUX ENDPOINT CONNECTOR
+D. INSTALL CONNECTOR ON MACOS / LINUX
 
-Download and extract a fresh connector kit using the target PC's browser.
-In that extracted folder:
-    python3 --version
-    sh start-connector.sh
+On the target endpoint, select macOS/Linux and click Install connector.
+Open Terminal in Downloads and run:
+    sh Install-connector.sh
 
-Equivalent:
-    python3 endpoint_connector.py --config connector.private.json
+Setup detects Python 3.11+. If missing, it installs the verified official
+macOS Python PKG or a supported Linux repository package (sudo approval may
+be required). It extracts the connector, creates Reconnect.command and starts
+it in the background. Unsupported/older package repositories stop with a
+clear Python requirement. If setup exceeds the 10-minute enrollment window,
+use a fresh installer after prerequisites finish.
 
-For approved root operations, stop the read-only connector after all jobs
-finish, then use the exact sudo command shown by that endpoint's portal
-privilege panel. General form from the extracted folder:
-    pythonPath="$(python3 -c 'import sys; print(sys.executable)')"
-    sudo "$pythonPath" endpoint_connector.py --config connector.private.json --resume --no-open-browser
-
-Passwords are entered only in the native terminal/UAC prompt, not the portal.
+macOS files/logs:
+    ~/Library/Application Support/Dexcom/EPMConnector/installation.*
+Linux files/logs:
+    ${XDG_DATA_HOME:-~/.local/share}/dexcom/epm-connector/installation.*
+Reconnect via Reconnect.command; no login startup/service is installed.
+For root operations, wait for jobs, stop the connector process listed in that
+installation's connector.pid, then run the exact sudo command shown by the
+portal. Enter passwords only in the native terminal/UAC prompt.
 macOS may need extension/Full Disk Access approvals. Linux removal remains
-manual; installation is enabled only for the supplied compatible distro kit.
+manual; agent installation requires a supplied compatible distro kit.
 
 E. PAIRING / STOPPING / UPDATING
 
-- Use a separate freshly downloaded kit for every PC. Enrollment is one-use
+- Use a separate freshly downloaded installer for every PC. Enrollment is one-use
   and expires after 10 minutes. Never reuse/share connector.private.json.
-- Keep the connector console open. No connector means Not connected;
+- Keep the connector process running. No connector means Not connected;
   the portal never substitutes its own server inventory.
 - Browser pairing is remembered in that browser's local storage. Use Clear
   pairing on a shared browser. Keep private credentials out of Git/chat.
-- After restarting the PORTAL, reload/sign in and download/run a fresh kit
+- After restarting the PORTAL, reload/sign in and download/open a fresh installer
   on each endpoint to re-enroll. The registry is currently in memory.
 - Do not restart the portal or close connectors during agent operations.
-- Wait for operations to finish before Ctrl+C. Closing a browser tab alone
+- Wait for operations to finish before stopping the connector. Closing a browser tab alone
   does not stop the connector or an operation.
 - HTTP is unencrypted. Use a trusted LAN and approved file/code sharing.
 
@@ -145,10 +151,10 @@ F. TROUBLESHOOTING
 Only the host appears / old host behavior persists:
     Stop the old Python portal after its operations finish, update the full
     webapp source and restart it. Reload the browser. Connect each visiting
-    PC using a new kit. Old running Python processes do not reload code.
+    PC using a new installer. Old running Python processes do not reload code.
 
 No connector / offline:
-    Start it on that PC; keep its console open. Check outbound access to
+    Install/start it on that PC; keep its process running. Check outbound access to
     the portal IP/8765. Re-enroll if the portal restarted or the ticket expired.
 
 Unable to bind portal:

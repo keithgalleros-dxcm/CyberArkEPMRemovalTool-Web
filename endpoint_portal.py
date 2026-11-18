@@ -1,7 +1,7 @@
 """Portal-side endpoints and private connector enrollment/downloads."""
 import io,json,tempfile,zipfile
 from pathlib import Path
-import installation,lan_access
+import installation,lan_access,connector_installer
 from endpoint_broker import BROKER
 MANAGED={'/api/status','/api/packages','/api/installation-health','/api/install','/api/uninstall','/api/elevate'}
 def direct(handler):
@@ -30,18 +30,22 @@ def get(handler,api=False):
     return False
 def bootstrap(handler):
     if not lan_access.ADDRESS:raise ValueError('Enable a LAN address on the portal before creating endpoint connector kits')
+    platform=data(handler).get('platform','archive')
+    if platform not in ('windows','macos','linux','archive'):raise ValueError('Unsupported connector installer platform')
     ticket,key=BROKER.ticket()
     config={'portal_url':'http://'+lan_access.ADDRESS+':8765','ticket':ticket,'browser_key':key}
     root=Path(__file__).resolve().parent
-    names=['app.py','catalog.py','installation.py','lan_access.py','windows_verification.py','endpoint_broker.py','endpoint_portal.py','endpoint_connector.py']
+    names=['app.py','catalog.py','installation.py','lan_access.py','windows_verification.py','endpoint_broker.py','endpoint_portal.py','endpoint_connector.py','connector_installer.py']
     output=io.BytesIO()
     with zipfile.ZipFile(output,'w',zipfile.ZIP_DEFLATED) as archive:
         for name in names:archive.write(root/name,name)
         archive.writestr('connector.private.json',json.dumps(config))
-        archive.writestr('Start connector.cmd','@echo off\r\ncd /d "%~dp0"\r\nwhere py >nul 2>nul\r\nif errorlevel 1 (python endpoint_connector.py --config connector.private.json) else (py -3 endpoint_connector.py --config connector.private.json)\r\npause\r\n')
-        archive.writestr('start-connector.sh','#!/bin/sh\ncd -- "$(dirname -- "$0")" || exit 1\nexec python3 endpoint_connector.py --config connector.private.json\n')
-        archive.writestr('CONNECTOR-README.txt','Run this connector ON THE PC OR VM YOU WANT TO MANAGE.\nRequires Python 3.11+. Extract into your private user folder, then run Start connector.cmd on Windows or sh start-connector.sh on macOS/Linux.\nThe kit enrollment expires in 10 minutes and is single-use. Keep the portal tab open; the connector can also open the paired portal in your default browser.\nKeep its console open. Only outbound access to the portal is needed. No inbound endpoint firewall rule or browser localhost access is required.\nThis connector does not install/remove CyberArk automatically. Those actions require explicit portal confirmation and local administrator/root approval.\nconnector.private.json contains private enrollment/device credentials. Do not share or commit it. Re-enroll after portal restart. HTTP is unencrypted; use a trusted LAN.\n')
-    handler.reply(200,output.getvalue(),'application/zip',{'Content-Disposition':'attachment; filename="endpoint-connector.zip"','X-Endpoint-Browser-Key':key})
+    if platform=='archive':
+        content,filename,kind=output.getvalue(),'endpoint-connector.zip','application/zip'
+    else:
+        content,filename,kind=connector_installer.render(output.getvalue(),platform)
+    handler.reply(200,content,kind,{'Content-Disposition':'attachment; filename="'+filename+'"','X-Endpoint-Browser-Key':key})
+
 def post(handler,api=False):
     path=handler.path.replace("/api/v1/endpoint/","/endpoint/",1) if api else handler.path
     try:

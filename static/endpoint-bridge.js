@@ -22,7 +22,7 @@ async function info(){
 function render(){
  const message=document.getElementById('endpoint-connect-message');if(!message)return;
  message.textContent=connection.connected?(connection.direct?connection.message:'Connected to this endpoint: '+connection.hostname):connection.message;
- const download=document.getElementById('endpoint-connect-download');if(download)download.disabled=connection.direct||false;
+ const download=document.getElementById('endpoint-connect-download');if(download)download.disabled=connection.connected||false;
  const clear=document.getElementById('endpoint-connect-clear');if(clear)clear.hidden=!key;
 }
 window.endpointBridge={get connected(){return connection.connected;},get paired(){return !!key;},refresh:info};
@@ -56,20 +56,22 @@ window.fetch=async(input,options={})=>{
  }catch(error){return jsonResponse(409,{error:error.message,connector_required:true});}
 };
 document.addEventListener('DOMContentLoaded',()=>{
+ const platform=document.getElementById('endpoint-install-platform');
+ if(platform){const hint=navigator.userAgentData?.platform||navigator.platform||navigator.userAgent||'';platform.value=/win/i.test(hint)?'windows':/mac/i.test(hint)?'macos':'linux';}
  const download=document.getElementById('endpoint-connect-download');
  if(download)download.onclick=async()=>{
   download.disabled=true;
   try{
    const settings=await context;
-   const response=await originalFetch('/endpoint/bootstrap',{method:'POST',headers:{'Content-Type':'application/json','X-Portal-Session':settings.session},body:'{}'});
+   const response=await originalFetch('/endpoint/bootstrap',{method:'POST',headers:{'Content-Type':'application/json','X-Portal-Session':settings.session},body:JSON.stringify({platform:document.getElementById('endpoint-install-platform').value})});
    if(!response.ok){const error=await response.json();throw Error(error.error);}
    key=response.headers.get('X-Endpoint-Browser-Key');if(!key)throw Error('Enrollment key not returned');
    localStorage.setItem(storageName,key);
-   const blob=await response.blob();const url=URL.createObjectURL(blob);const link=document.createElement('a');link.href=url;link.download='endpoint-connector.zip';document.body.append(link);link.click();link.remove();setTimeout(()=>URL.revokeObjectURL(url),3000);
-   connection={connected:false,message:'Extract the kit ON THIS PC, then run Start connector.cmd (Windows) or sh start-connector.sh (macOS/Linux). Python 3.11+ required. Keep the connector console open.'};render();
+   const blob=await response.blob();const url=URL.createObjectURL(blob);const link=document.createElement('a');link.href=url;link.download=document.getElementById('endpoint-install-platform').value==='windows'?'Install-connector.cmd':'Install-connector.sh';document.body.append(link);link.click();link.remove();setTimeout(()=>URL.revokeObjectURL(url),3000);
+   connection={connected:false,message:'Open Install-connector.cmd on this Windows PC, or run sh Install-connector.sh in Terminal on macOS/Linux. Setup checks Python, installs prerequisites if missing, unpacks and starts the connector automatically. Return here to confirm Connected.'};render();
    window.dispatchEvent(new Event('endpoint-disconnected'));
   }catch(error){connection={connected:false,message:error.message};render();}
-  finally{download.disabled=false;}
+  finally{download.disabled=connection.connected;}
  };
  const clear=document.getElementById('endpoint-connect-clear');
  if(clear)clear.onclick=()=>{key='';localStorage.removeItem(storageName);connection={connected:false,message:'Endpoint pairing cleared. Run/download the connector on the PC you want to use.'};render();window.dispatchEvent(new Event('endpoint-disconnected'));};

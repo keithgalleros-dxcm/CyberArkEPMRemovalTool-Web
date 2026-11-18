@@ -19,3 +19,10 @@ private-kits/
 connector.private.tmp
 endpoint-connector.zip
 *.private.tmp
+
+# Generated installers embed private one-use enrollment credentials
+Install-connector.cmd
+Install-connector.sh
+connector.pid
+setup-info.json
+Reconnect.command

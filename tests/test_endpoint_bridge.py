@@ -80,6 +80,15 @@ class EndpointPortalTests(unittest.TestCase):
             names=archive.namelist();self.assertIn('endpoint_connector.py',names);self.assertIn('connector.private.json',names)
             self.assertFalse(any(name.endswith(('.msi','.rpm','.deb','.pkg','.config')) for name in names))
             self.assertNotIn('agent installation key.txt',names)
+    def test_windows_installer_served_with_pairing_key(self):
+        code,raw,headers=self.request('/endpoint/bootstrap',{'platform':'windows'})
+        self.assertEqual(code,200);self.assertIn('Install-connector.cmd',headers['Content-Disposition'])
+        self.assertTrue(raw.startswith(b'@echo off'));self.assertTrue(headers['X-Endpoint-Browser-Key'])
+    def test_unix_installer_served(self):
+        code,raw,headers=self.request('/endpoint/bootstrap',{'platform':'linux'})
+        self.assertEqual(code,200);self.assertIn('Install-connector.sh',headers['Content-Disposition']);self.assertTrue(raw.startswith(b'#!/bin/sh'))
+    def test_unknown_installer_platform_rejected(self):
+        self.assertEqual(self.request('/endpoint/bootstrap',{'platform':'android'})[0],409)
     def test_endpoint_routes_require_portal_csrf(self):
         self.assertEqual(self.request('/endpoint/bootstrap',{},headers={'X-Portal-Session':''})[0],403)
     def test_endpoint_routes_require_lan_signin(self):

@@ -9,12 +9,36 @@ A normal browser cannot inspect installed software, services or UAC state. Each 
 needs its own connector. Browser OS hints and source IPs are not used as a substitute for endpoint inventory.
 
 1. Start the central portal and sign in from the target PC's browser.
-2. Click **Download connector for this PC** and extract the private kit **on that PC/VM**.
-3. Windows: run **Start connector.cmd**. macOS/Linux: run `sh start-connector.sh`.
-4. Keep its console open. The connector opens the paired portal in the default browser and reports
-   its own hostname, OS version, architecture, agent registrations and privileges.
-5. Approve Windows UAC **on that endpoint** when needed. macOS/Linux show local sudo instructions.
-   Installing/removing an agent still requires explicit confirmation and the endpoint hostname.
+2. Click **Install connector**. The OS selector defaults from browser hints; correct it if necessary.
+   Browser hints select an installer only. Actual inventory comes from the installed connector.
+3. **Windows desktop/server:** open the downloaded **Install-connector.cmd**. It detects a working
+   Python 3.11+, or downloads a SHA-256 verified official private Python runtime for the actual CPU.
+   Setup extracts and installs the connector under `%LOCALAPPDATA%\Dexcom\EPMConnector`, starts it
+   in the background, and adds a **Dexcom Endpoint Connector** Start menu reconnect shortcut.
+   No manual ZIP extraction, Python installation, PATH changes or copying into Python's folder.
+4. **macOS/Linux:** open Terminal in Downloads and run `sh Install-connector.sh`. Setup finds Python
+   3.11+, installs it when missing, extracts into a private per-user application folder and starts
+   the connector. macOS uses the official checksum-verified Python PKG (sudo approval); Linux uses
+   apt/dnf/zypper/pacman/apk repositories. Unsupported/older repositories stop with instructions.
+5. The connector opens the paired portal and reports its own hostname, OS, CPU, agents and privileges.
+   Confirm **Connected to this endpoint** and compare the hostname before any agent operation.
+6. Approve Windows UAC **on that endpoint** when needed. macOS/Linux show local sudo instructions.
+   Installing/removing CyberArk still requires explicit confirmation and the endpoint hostname.
+
+A browser cannot silently run a downloaded program or detect Python on an unconnected PC. The first
+installer launch is required; runtime detection and the remaining setup then run automatically.
+Keep the installer private and open it within 10 minutes. A slow prerequisite installation can exhaust
+enrollment; use **Install connector** again afterward (Python will already be present on macOS/Linux).
+Windows private runtimes belong to their specific installation and may be downloaded again on re-enrollment.
+
+Connector logs and `setup-info.json` (runtime mode/path) are stored in its installation folder. Windows:
+`%LOCALAPPDATA%\Dexcom\EPMConnector\<installation-id>`. macOS:
+`~/Library/Application Support/Dexcom/EPMConnector/installation.*`. Linux:
+`${XDG_DATA_HOME:-~/.local/share}/dexcom/epm-connector/installation.*`.
+Windows reconnects via Start menu; macOS/Linux via the generated `Reconnect.command`.
+No connector service or automatic login startup is registered. After reboot, reconnect explicitly.
+A portal restart requires a fresh installer on each endpoint. Stop only the connector process identified
+in that installation's `connector.pid`, after its agent jobs finish. Closing the browser does not stop it.
 
 No connector/offline connector means **Not connected**. The portal never silently falls back to the
 web server's agent details or execution context. Connector requests are outbound HTTP(S) to the portal;
@@ -29,7 +53,7 @@ use endpoint pairing, including when the browser source IP happens to equal the 
 | Component | Requirements |
 | --- | --- |
 | Portal | Python 3.11+, readable private deployment library, free TCP 8765 |
-| Each endpoint | Python 3.11+, its own extracted connector kit, outbound access to the portal |
+| Each endpoint | Run its own connector installer; Python detected/provisioned; outbound access to portal and prerequisite sources when needed |
 | Browser | JavaScript, cookies and local storage enabled |
 | Windows privilege changes | Local UAC approval / administrator credentials |
 | macOS/Linux installation | Root/sudo on that endpoint; vendor prerequisites and macOS extension approvals |
@@ -132,14 +156,14 @@ API above for visiting PCs. The LAN GUI cannot use legacy browser routes to fall
 
 ## Pairing, security and operational limits
 
-- Enrollment tickets are one-use and expire after 10 minutes. Connector ZIPs contain no CyberArk installers,
+- Enrollment tickets are one-use and expire after 10 minutes. Connector installers contain no CyberArk installers,
   tenant config or installation key, but their enrollment/device config is private. Never share/reuse kits across PCs.
 - Each endpoint gets a separate credential and browser capability. Commands are allowlisted, consumed once,
   and are not arbitrary shell commands. Requests/results are isolated by endpoint and browser capability.
 - Keep `connector.private.json` private. Run one connector instance per endpoint. A replacement instance
   invalidates the older polling instance; active operations block ordinary replacement.
 - Portal registry, jobs and relay results are in memory. After a portal restart, reload/sign in and download
-  a fresh connector kit to re-enroll. Do not restart the portal or close connectors during active operations.
+  a fresh connector installer to re-enroll. Do not restart the portal or close connectors during active operations.
 - Paired browsers may remember their endpoint capability. Clear pairing on shared browsers. Only the PC
   where the connector actually runs supplies inventory; moving a private kit to another PC is not supported.
 - LAN sign-in remains separate. LAN codes rotate on portal restart and cookies expire after eight hours.
@@ -168,3 +192,13 @@ Vendor references: [Windows](https://docs.cyberark.com/epm/latest/en/content/ins
 [macOS](https://docs.cyberark.com/epm/latest/en/content/installation/macos-installagents.htm),
 [Linux](https://docs.cyberark.com/epm/latest/en/content/installation/linux-installagents.htm).
 Brand sources and ownership are recorded in `static/brand/SOURCES.md`.
+
+## Connector runtime sources
+
+Windows private runtime and missing macOS Python use the official [Python 3.15.2 release](https://www.python.org/downloads/release/python-3152/),
+with SHA-256 digests pinned in `connector_setup`. Windows downloads the x64/x86/ARM64 embeddable ZIP
+matching the actual machine; macOS downloads the universal PKG. The Windows embedded distribution
+is supported for [private application runtimes](https://docs.python.org/3/using/windows.html#the-embeddable-package).
+Existing compatible Python is reused. Linux prerequisite packages come from the endpoint's configured
+OS repositories. Network/proxy policies, application control and local sudo/UAC policies still apply.
+Setup reports failures and does not claim successful portal enrollment merely because files were copied.

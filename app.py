@@ -8,6 +8,8 @@ import secrets
 import subprocess
 import threading
 import sys
+import lan_access
+import ipaddress
 import installation
 import tempfile
 import shutil
@@ -24,6 +26,7 @@ GUID = re.compile(r'\{[0-9a-fA-F]{8}-(?:[0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}\}')
 LOCK = threading.Lock()
 JOB = {'status': 'idle'}
 ELEVATING = False
+ACTIVE_SERVERS = []
 SESSION = secrets.token_urlsafe(32)
 API_KEY = os.environ.get('EPM_API_KEY', '')
 if API_KEY and (len(API_KEY) < 32 or not API_KEY.isascii() or any(c.isspace() for c in API_KEY)):
@@ -111,10 +114,10 @@ def elevation_info():
     system = platform.system()
     if system == 'Windows':
         ps = lambda value: "'" + value.replace("'", "''") + "'"
-        arguments = subprocess.list2cmdline([str(Path(__file__).resolve())])
+        arguments = subprocess.list2cmdline([str(Path(__file__).resolve())]+(['--lan-address',lan_access.ADDRESS] if lan_access.ADDRESS else []))
         manual = 'Start-Process -Verb RunAs -FilePath ' + ps(sys.executable) + ' -ArgumentList ' + ps(arguments)
     elif system in ('Darwin','Linux'):
-        manual = 'sudo ' + shlex.join([sys.executable, str(Path(__file__).resolve())])
+        manual = 'sudo ' + shlex.join([sys.executable, str(Path(__file__).resolve())]+(['--lan-address',lan_access.ADDRESS] if lan_access.ADDRESS else []))
     else:
         manual = ''
     return {'method': 'windows-uac' if system == 'Windows' else 'manual', 'can_request': system == 'Windows' and not API_KEY, 'pending': ELEVATING, 'manual_command': manual}
@@ -126,7 +129,7 @@ def request_windows_elevation():
     execute = shell.ShellExecuteW
     execute.argtypes = [wintypes.HWND, wintypes.LPCWSTR, wintypes.LPCWSTR, wintypes.LPCWSTR, wintypes.LPCWSTR, ctypes.c_int]
     execute.restype = ctypes.c_void_p
-    parameters = subprocess.list2cmdline([str(Path(__file__).resolve()), '--wait-for-port'])
+    parameters = subprocess.list2cmdline([str(Path(__file__).resolve()), '--wait-for-port'] + (['--lan-address',lan_access.ADDRESS] if lan_access.ADDRESS else []))
     code = execute(None, 'runas', sys.executable, parameters, str(Path(__file__).resolve().parent), 1) or 0
     if code <= 32:
         raise OSError('Administrator request was cancelled, denied, or could not start.')
@@ -134,7 +137,7 @@ def request_windows_elevation():
 def restart_after_elevation(server):
     def stop_original():
         time.sleep(0.4)
-        server.shutdown()
+        for active in (ACTIVE_SERVERS or [server]):active.shutdown()
     threading.Thread(target=stop_original, daemon=True).start()
 
 def snapshot(browser=False):
@@ -178,7 +181,7 @@ def start_install(record,endpoint):
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, *_): pass
 
-    def reply(self, status, data, kind='application/json'):
+    def reply(self, status, data, kind='application/json', extra_headers=None):
         raw = json.dumps(data).encode() if kind == 'application/json' else data
         self.send_response(status)
         self.send_header('Content-Type', kind)
@@ -186,11 +189,32 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header('Cache-Control', 'no-store')
         self.send_header('X-Content-Type-Options', 'nosniff')
         self.send_header('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self'; frame-ancestors 'none'; form-action 'self'; base-uri 'none'")
+        for name,value in (extra_headers or {}).items():self.send_header(name,value)
         self.end_headers()
         self.wfile.write(raw)
 
     def trusted(self):
-        return self.headers.get('Host') == '127.0.0.1:8765'
+        allowed={'127.0.0.1:8765'}
+        if lan_access.ADDRESS:allowed.add(lan_access.ADDRESS+':8765')
+        return self.headers.get('Host') in allowed
+
+    def local_client(self):
+        return lan_access.local_client(self.client_address[0])
+
+    def origin_allowed(self):
+        return self.headers.get('Origin')=='http://'+self.headers.get('Host','')
+
+    def browser_authorized(self):
+        return self.local_client() or lan_access.authenticated(self.headers.get('Cookie'))
+
+    def browser_snapshot(self):
+        data=snapshot(browser=True)
+        data['network']={'url':'http://'+lan_access.ADDRESS+':8765' if lan_access.ADDRESS else '', 'remote':not self.local_client()}
+        if self.local_client() and lan_access.ADDRESS:data['network']['access_code']=lan_access.ACCESS_CODE
+        if not self.local_client():
+            data['elevation']['can_request']=False
+            data['elevation']['manual_command']='Request administrator approval locally on '+data['hostname']
+        return data
 
     def api_authorized(self):
         # Browser sessions never confer integration access; integrations cannot use CORS.
@@ -199,6 +223,11 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         if not self.trusted(): return self.reply(403, {'error': 'Invalid host'})
+        public_assets={'/login','/lan-login.js','/style.css','/brand/dexcom-logo.png','/brand/Gilroy-Medium.woff2','/brand/Gilroy-Bold.woff2'}
+        if not self.path.startswith('/api/v1/') and not self.browser_authorized() and self.path not in public_assets:
+            if self.path.startswith('/api/'):return self.reply(401,{'error':'LAN sign-in required','login_url':'/login'})
+            return self.reply(302,b'', 'text/plain',{'Location':'/login'})
+        if self.path=='/login':return self.reply(200,(Path(__file__).parent/'static'/'lan-login.html').read_bytes(),'text/html; charset=utf-8')
         if self.path.startswith('/api/v1/'):
             if not self.api_authorized(): return self.reply(401, {'error': 'Configure EPM_API_KEY and supply a valid Bearer token; browser origins are not accepted.'})
             if self.path == '/api/v1/packages':
@@ -212,7 +241,7 @@ class Handler(BaseHTTPRequestHandler):
             try:return self.reply(200, install_preflight())
             except (OSError, subprocess.SubprocessError):return self.reply(500, {'error':'Unable to safely inspect package compatibility or existing agents.'})
         if self.path == '/api/status':
-            try: return self.reply(200, snapshot(browser=True))
+            try: return self.reply(200, self.browser_snapshot())
             except (OSError, subprocess.SubprocessError): return self.reply(500, {'error': 'Endpoint scan failed'})
         if self.path == '/catalog.json': return self.reply(200, PAGES)
         if self.path == '/openapi.json':
@@ -229,6 +258,7 @@ class Handler(BaseHTTPRequestHandler):
             assets = {
                 '/style.css': ('style.css', 'text/css'),
                 '/ui.js': ('ui.js', 'text/javascript'),
+                '/lan-login.js': ('lan-login.js', 'text/javascript'),
                 '/install-ui.js': ('install-ui.js', 'text/javascript'),
                 '/brand/dexcom-logo.png': ('brand/dexcom-logo.png', 'image/png'),
                 '/brand/Gilroy-Medium.woff2': ('brand/Gilroy-Medium.woff2', 'font/woff2'),
@@ -240,6 +270,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def handle_elevation(self):
         global ELEVATING
+        if not self.local_client():return self.reply(403,{'error':'UAC must be requested and approved locally on the server endpoint.'})
         try:
             size = int(self.headers.get('Content-Length', '0'))
             if not 0 < size <= 2048: raise ValueError()
@@ -314,10 +345,17 @@ class Handler(BaseHTTPRequestHandler):
             if len(self.request_body)!=size:return self.reply(400,{'error':'Incomplete request'})
         except (ValueError,OSError):return self.reply(400,{'error':'Unable to read request'})
         if not self.trusted(): return self.reply(403, {'error': 'Invalid host'})
+        if self.path=='/auth/login':
+            if not self.origin_allowed():return self.reply(403,{'error':'Invalid origin'})
+            try:data=json.loads(self.request_body)
+            except (ValueError,TypeError):return self.reply(400,{'error':'Invalid sign-in request'})
+            if not isinstance(data,dict) or not lan_access.valid_code(data.get('code')):return self.reply(401,{'error':'Invalid LAN access code'})
+            return self.reply(200,{'status':'signed_in'},extra_headers={'Set-Cookie':lan_access.session_cookie()})
         integration = self.path.startswith('/api/v1/')
+        if not integration and not self.browser_authorized():return self.reply(401,{'error':'LAN sign-in required','login_url':'/login'})
         if integration:
             if not self.api_authorized(): return self.reply(401, {'error': 'Invalid API credentials or browser origin'})
-        elif self.headers.get('Origin') != 'http://127.0.0.1:8765' or self.headers.get('X-Session') != SESSION:
+        elif not self.origin_allowed() or self.headers.get('X-Session') != SESSION:
             return self.reply(403, {'error': 'Invalid session or origin'})
         if self.path in ('/api/install','/api/v1/install'):return self.install_or_download()
         if self.path == '/api/packages/download':return self.install_or_download(download=True)
@@ -351,22 +389,35 @@ class Handler(BaseHTTPRequestHandler):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--wait-for-port', action='store_true', help=argparse.SUPPRESS)
+    parser.add_argument('--lan-address', help='Optional private IPv4 address to listen on alongside loopback')
     options = parser.parse_args()
-    if options.wait_for_port and not elevated():
-        raise SystemExit('Administrator relaunch was not elevated. Restart manually as administrator.')
-    deadline = time.monotonic() + (30 if options.wait_for_port else 0)
+    if options.lan_address:
+        address=ipaddress.ip_address(options.lan_address)
+        if address.version!=4 or not address.is_private or address.is_loopback or address.is_unspecified or address.is_multicast:
+            parser.error('--lan-address must be a specific private IPv4 address assigned to this endpoint')
+        lan_access.ADDRESS=str(address)
+    if options.wait_for_port and not elevated():raise SystemExit('Administrator relaunch was not elevated. Restart manually as administrator.')
+    deadline=time.monotonic()+(30 if options.wait_for_port else 0)
     while True:
+        servers=[]
         try:
-            server = ThreadingHTTPServer(('127.0.0.1', 8765), Handler)
+            for address in ['127.0.0.1']+([lan_access.ADDRESS] if lan_access.ADDRESS else []):
+                servers.append(ThreadingHTTPServer((address,8765),Handler))
             break
         except OSError as error:
-            if error.errno not in (errno.EADDRINUSE, 10048) or time.monotonic() >= deadline:
-                raise SystemExit('Unable to bind port 8765. Close the previous console and restart manually.') from error
+            for server in servers:server.server_close()
+            if error.errno not in (errno.EADDRINUSE,10048) or time.monotonic()>=deadline:
+                raise SystemExit('Unable to bind the configured address/port. Check the local IP and close the previous console.') from error
             time.sleep(0.25)
-    print('EPM Removal Console: http://127.0.0.1:8765 (Ctrl+C to stop)')
-    print('Run on the endpoint to manage. Removal requires administrator/root privileges.')
-    with server:
-        try: server.serve_forever()
-        except KeyboardInterrupt: pass
+    ACTIVE_SERVERS[:]=servers
+    print('EPM Console: http://127.0.0.1:8765 (Ctrl+C to stop)')
+    if lan_access.ADDRESS:print('LAN URL: http://'+lan_access.ADDRESS+':8765 — obtain the sign-in code from the loopback UI.')
+    for server in servers[1:]:threading.Thread(target=server.serve_forever,daemon=True).start()
+    try:servers[0].serve_forever()
+    except KeyboardInterrupt:pass
+    finally:
+        for server in servers[1:]:server.shutdown()
+        for server in servers:server.server_close()
+        ACTIVE_SERVERS.clear()
 
-if __name__ == '__main__': main()
+if __name__=='__main__':main()

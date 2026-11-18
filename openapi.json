@@ -8,6 +8,15 @@
   "servers": [
     {
       "url": "http://127.0.0.1:8765"
+    },
+    {
+      "url": "http://{address}:8765",
+      "description": "Optional trusted LAN address; enable --lan-address first and use a separate API bearer key",
+      "variables": {
+        "address": {
+          "default": "192.168.1.100"
+        }
+      }
     }
   ],
   "security": [

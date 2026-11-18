@@ -166,3 +166,22 @@ Vendor installation references:
 - https://docs.cyberark.com/epm/latest/en/content/installation/linux-installagents.htm
 
 Development tests use synthetic kits and mocked installers. No live installation or removal was performed.
+
+## Optional LAN access
+
+Run `python app.py --lan-address 192.168.1.100` when that private IPv4 address is assigned to the host.
+The app listens separately on loopback and the specified address, port 8765; it does not bind all interfaces.
+Open http://192.168.1.100:8765. On another device, enter the LAN access code shown under **LAN access and
+managed endpoint** in the server’s loopback UI. Codes rotate on process restart; signed HttpOnly/SameSite
+cookies expire after eight hours. Codes are not logged, put in URLs, or saved in the repository. Bearer
+API integration still requires its separately configured key. Host and Origin allowlists remain enforced.
+
+Authenticated LAN operators can view/manage the hosting endpoint and download its private kits.
+They are not managing their browser device. UAC must be requested/approved on the server locally.
+Administrator relaunch preserves the LAN address but rotates browser sign-in sessions.
+HTTP is unencrypted: use a trusted LAN and approved channels for access codes and downloaded kits.
+The default launch remains loopback-only. Windows Firewall must permit TCP 8765 for the configured local
+address from the intended LAN subnet; do not use unrestricted inbound or internet port-forwarding rules.
+
+Windows firewall setup: review and run `Enable-LanFirewall.ps1` from an administrator PowerShell session. The helper scopes access to the configured local address, Python executable and matching /24 subnet; it does not change the network profile.
+LAN bearer clients may use the configured LAN address as their API base URL. Browser cookies do not replace API bearer keys.

@@ -17,3 +17,5 @@ pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#f4f6f1;border:1px so
 aside{overflow-y:auto}.reinstall{border-left:4px solid var(--green)}#install-blockers{border-left:3px solid var(--green)}#install-start{margin-top:20px}#package-list .card{display:flex;flex-direction:column}#package-list button{margin-top:auto;align-self:flex-start}#package-list .eyebrow{font-size:9px}
 
 main[data-route="/download-center"] .elevation-panel{display:none}
+
+.network-access{font-size:12px}.network-access summary{cursor:pointer;color:var(--green-dark);font-weight:700}.network-access pre{user-select:all}.lan-login main{margin:7vh auto;max-width:650px;padding:24px}.lan-login .panel{padding:32px}.lan-login h1{font-size:32px}.lan-login img{display:block;max-width:100%;height:auto;margin-left:-24px}.lan-login .eyebrow{margin-top:20px}

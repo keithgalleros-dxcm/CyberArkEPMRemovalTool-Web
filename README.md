@@ -253,3 +253,24 @@ address from the intended LAN subnet; do not use unrestricted inbound or interne
 
 Windows firewall setup: review and run `Enable-LanFirewall.ps1` from an administrator PowerShell session. The helper scopes access to the configured local address, Python executable and matching /24 subnet; it does not change the network profile.
 LAN bearer clients may use the configured LAN address as their API base URL. Browser cookies do not replace API bearer keys.
+
+## VM targets and Windows installation verification
+
+VMware bridged networking does not make the browser VM the installation target. A browser at
+`http://192.168.1.101:8765` manages the Python process on the machine owning that address. To install
+inside a VM, run Python inside that VM and open its loopback URL, or download a private kit inside
+the VM and follow its INSTALL-README.txt as administrator. Confirm the VM computer name matches
+Managed endpoint before installing. The installation form now requires typing that hostname.
+
+Windows completion requires the selected MSI's exact ProductCode and version, its vf_agent.exe
+component file, and a running vf_agent service. MSI acceptance alone or an unrelated EPM registration
+does not count as complete. An accepted but unverified install returns attention_required with the
+actual execution hostname and Windows verification fields. Restart when required and confirm
+console enrollment separately. Tray visibility is not used as the health test.
+
+Windows installation temporarily enables a verbose MSI log with confidential properties marked
+hidden. The log stays in the private staging directory and is deleted with staging. Only numeric
+MSI error/engine codes and failure flags are returned; raw log lines are not served or retained by
+the app. Installer/debug policy may still put sensitive values in temporary vendor logs.
+
+Use **Verify Windows agent (read-only)** in the installation workspace to inspect the expected product, version, component file and vf_agent service on the host without reinstalling. Compare the returned hostname with the VM computer name.

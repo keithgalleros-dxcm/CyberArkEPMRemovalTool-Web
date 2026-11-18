@@ -369,7 +369,8 @@
                   "idle",
                   "running",
                   "completed",
-                  "failed"
+                  "failed",
+                  "attention_required"
                 ]
               },
               "exit_code": {
@@ -383,6 +384,10 @@
               },
               "restart_required": {
                 "type": "boolean"
+              },
+              "hostname": {
+                "type": "string",
+                "description": "Machine that actually executed the operation"
               }
             }
           },

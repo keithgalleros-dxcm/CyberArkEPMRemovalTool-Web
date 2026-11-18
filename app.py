@@ -162,17 +162,27 @@ def install_preflight():
     if job.get('status')=='running' or ELEVATING:blockers.append('Another operation is in progress.')
     matched=[p for p in packages if p['matched']]
     if len(matched)!=1:blockers.append('No unique compatible installer is available for this OS version and architecture.')
-    return {'host':endpoint,'packages':packages,'existing_agents':found,'blockers':blockers,'recommended_id':matched[0]['id'] if len(matched)==1 else None,'can_install':not blockers,'elevated':elevated(),'job':job}
+    return {'hostname':platform.node(),'host':endpoint,'packages':packages,'existing_agents':found,'blockers':blockers,'recommended_id':matched[0]['id'] if len(matched)==1 else None,'can_install':not blockers,'elevated':elevated(),'job':job}
 
 def run_install_job(record, endpoint):
     global JOB
+    hostname=platform.node()
     try:
         result=installation.install(record,endpoint,lambda:not installation.existing(scan) and not installation.pending_restart())
-        present=bool(scan())
-        success=result.pop('accepted') and present
-        result.update(status='completed' if success else 'failed',operation='install',registration_present=present,message='Agent installed. Confirm enrollment and policy health in the EPM management console.' if success else 'Installation or activation was not verified. Review the vendor procedure and rescan; do not retry blindly.')
+        accepted=result.pop('accepted')
+        if record['family']=='windows':
+            verification=result.get('windows_verification',{})
+            present=bool(verification.get('registered'))
+            healthy=bool(verification.get('runtime_verified'))
+            status='completed' if accepted and healthy else 'attention_required' if accepted else 'failed'
+            message=('Expected MSI product, version, agent executable and running vf_agent service verified on '+hostname+'. Confirm enrollment separately in the EPM console.' if status=='completed' else 'Installation is NOT fully verified on '+hostname+'. Check MSI product, agent file and service evidence below. Complete any required restart; do not retry blindly.')
+        else:
+            present=bool(scan())
+            status='completed' if accepted and present else 'failed'
+            message='Agent installation and activation verified on '+hostname+'. Confirm EPM console enrollment.' if status=='completed' else 'Installation or activation was not verified on '+hostname+'. Review vendor guidance and rescan.'
+        result.update(status=status,operation='install',hostname=hostname,platform=endpoint.get('system'),registration_present=present,message=message)
     except Exception:
-        result={'status':'failed','operation':'install','message':'Installation could not complete. Check package prerequisites, config/key validity and vendor guidance. An incomplete installation may need support.'}
+        result={'status':'failed','operation':'install','hostname':hostname,'platform':endpoint.get('system'),'message':'Installation or verification could not complete on '+hostname+'. Check prerequisites and deployment files. An incomplete installation may need support.'}
     with LOCK:JOB=result
 
 def start_install(record,endpoint):
@@ -237,6 +247,15 @@ class Handler(BaseHTTPRequestHandler):
             if self.path != '/api/v1/status': return self.reply(404, {'error': 'Not found'})
             try: return self.reply(200, snapshot())
             except (OSError, subprocess.SubprocessError): return self.reply(500, {'error': 'Endpoint scan failed'})
+        if self.path == '/api/installation-health':
+            if platform.system()!='Windows':return self.reply(200,{'hostname':platform.node(),'supported':False,'message':'This verification action currently targets Windows agents.'})
+            try:
+                records=[record for record in installation.discover() if record['family']=='windows' and record['ready']]
+                if len(records)!=1:return self.reply(409,{'error':'A unique complete Windows kit is required to verify the expected product.'})
+                identity=installation.windows_verification.msi_identity(records[0]['path'])
+                evidence=installation.windows_verification.evidence(identity)
+                return self.reply(200,{'hostname':platform.node(),'supported':True,'verification':evidence,'message':'Expected agent runtime verified on this host.' if evidence['runtime_verified'] else 'Agent runtime is not fully verified on this host. Compare this hostname with the VM computer name.'})
+            except (OSError,ValueError):return self.reply(500,{'error':'Unable to inspect the expected Windows agent safely.'})
         if self.path == '/api/packages':
             try:return self.reply(200, install_preflight())
             except (OSError, subprocess.SubprocessError):return self.reply(500, {'error':'Unable to safely inspect package compatibility or existing agents.'})
@@ -327,7 +346,7 @@ class Handler(BaseHTTPRequestHandler):
                 if installation.existing(scan):return self.reply(409,{'error':'Existing agent detected; installation is blocked.'})
                 if installation.pending_restart() or (JOB.get('operation')=='uninstall' and JOB.get('restart_required')):
                     return self.reply(409,{'error':'Restart this endpoint before installing.'})
-                JOB={'status':'running','operation':'install','message':'Installing the matched agent and applying its paired configuration. Keep the console running.'}
+                JOB={'status':'running','operation':'install','hostname':platform.node(),'platform':endpoint['system'],'message':'Installing the matched agent and applying its paired configuration. Keep the console running.'}
                 start_install(record,endpoint)
             return self.reply(202,{'status':'running','status_url':'/api/v1/status' if self.path.startswith('/api/v1/') else '/api/status'})
         except (ValueError,TypeError):return self.reply(400,{'error':'Invalid request or incomplete deployment kit.'})

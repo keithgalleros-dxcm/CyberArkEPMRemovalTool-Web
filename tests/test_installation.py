@@ -60,16 +60,16 @@ class KitFixture(unittest.TestCase):
     def test_windows_adapter_is_noninteractive_and_cleans_staging(self):
         seen=[]
         def execute(args):seen.append(list(args));self.assertTrue(Path(args[2]).exists());return 3010
-        with patch('installation.run',side_effect=execute),patch.dict(os.environ,{'SystemRoot':r'C:\Windows'}):
+        with patch('installation.run',side_effect=execute),patch.dict(os.environ,{'SystemRoot':r'C:\Windows'}),patch('windows_verification.msi_identity',return_value={'product_code':'test','product_version':'1'}),patch('windows_verification.evidence',return_value={'runtime_verified':False}):
             result=installation.install(self.record,HOST,lambda:True)
         self.assertTrue(result['restart_required']);self.assertIn('/norestart',seen[0])
         self.assertIn('INSTALLATIONKEY=synthetic-private-key',seen[0]);self.assertFalse(Path(seen[0][2]).exists())
-    def test_worker_marks_failed_verification(self):
+    def test_worker_requires_exact_windows_evidence(self):
         old=app.JOB
         try:
             with patch('app.installation.install',return_value={'accepted':True,'exit_code':0}),patch('app.installation.existing',return_value=[]),patch('app.scan',return_value=[]):
                 app.run_install_job(self.record,HOST)
-                self.assertEqual(app.JOB['status'],'failed')
+                self.assertEqual(app.JOB['status'],'attention_required')
         finally:app.JOB=old
     def test_mac_install_failure_does_not_activate(self):
         rec={**self.record,'family':'macos'};calls=[]
@@ -131,6 +131,10 @@ class InstallHttpTests(KitFixture):
         with zipfile.ZipFile(io.BytesIO(raw)) as z:self.assertIn(installation.KEY_NAME,z.namelist())
     def test_raw_key_url_unavailable(self):
         self.assertEqual(self.request('/Cyberark%20Agents/agent%20installation%20key.txt',get=True)[0],404)
+    def test_read_only_health_does_not_install(self):
+        with patch('app.platform.system',return_value='Windows'),patch('windows_verification.msi_identity',return_value={'product_code':'test'}),patch('windows_verification.evidence',return_value={'runtime_verified':False,'service_state':'missing'}):
+            code,raw=self.request('/api/installation-health',get=True)
+            self.assertEqual(code,200);data=json.loads(raw);self.assertEqual(data['hostname'],'endpoint');self.assertFalse(data['verification']['runtime_verified']);self.start.assert_not_called()
     def test_api_install_explicit_confirmation(self):
         with patch('app.API_KEY','mock-api-key-for-unit-tests-only-12345'):
             self.assertEqual(self.request('/api/v1/install',headers={'Origin':'','Authorization':'Bearer mock-api-key-for-unit-tests-only-12345'})[0],202)

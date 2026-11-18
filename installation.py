@@ -1,5 +1,6 @@
 """Private installer inventory and vendor adapters; secrets never enter status responses."""
 import hashlib, os, platform, shutil, subprocess, sys, tempfile, zipfile
+import windows_verification
 from pathlib import Path
 ROOT=Path(os.environ.get('EPM_AGENT_ROOT',str(Path(__file__).resolve().parent.parent/'Cyberark Agents'))).resolve()
 KEY_NAME='agent installation key.txt'
@@ -123,9 +124,14 @@ def install(rec,h,still_absent):
             key=paths['key'].read_text(encoding='utf-8-sig').strip()
             if not key or len(key)>4096 or any(c in key for c in '\r\n\x00"'):raise ValueError('Invalid installation key')
         if family=='windows':
-            args=[str(Path(os.environ['SystemRoot'])/'System32'/'msiexec.exe'),'/i',str(paths['path']),'INSTALLATIONKEY='+key,'CONFIGURATION='+str(paths['config']),'/qn','/norestart']
+            identity=windows_verification.msi_identity(paths['path'])
+            log=folder/'installer.log'
+            args=[str(Path(os.environ['SystemRoot'])/'System32'/'msiexec.exe'),'/i',str(paths['path']),'INSTALLATIONKEY='+key,'CONFIGURATION='+str(paths['config']),'MsiHiddenProperties=INSTALLATIONKEY;CONFIGURATION;SECURE_TOKEN','/qn','/norestart','/L*V',str(log)]
             code=run(args);args.clear();key=None
-            return {'exit_code':code,'restart_required':code in (3010,1641),'activation_verified':False,'accepted':code in (0,3010,1641)}
+            diagnostics=windows_verification.log_summary(log)
+            try:verification=windows_verification.evidence(identity)
+            except OSError:verification={'runtime_verified':False,'verification_error':'Unable to inspect Windows product/component/service state.'}
+            return {'exit_code':code,'restart_required':code in (3010,1641),'activation_verified':False,'accepted':code in (0,3010,1641),'windows_verification':verification,'installer_diagnostics':diagnostics}
         if family=='macos':
             code=run(['/usr/sbin/installer','-pkg',str(paths['path']),'-target','/'])
             if code:return {'exit_code':code,'accepted':False,'activation_verified':False}

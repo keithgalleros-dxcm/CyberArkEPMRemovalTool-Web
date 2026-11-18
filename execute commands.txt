@@ -259,3 +259,18 @@ Source repository:
     https://github.com/keithgalleros-dxcm/CyberArkEPMRemovalTool-Web
 
 No live install/removal is required to check whether the web app launches.
+
+VM INSTALLATION TARGET CHECK
+Opening the laptop LAN URL from a bridged VMware VM still controls the laptop.
+To install inside the VM, either run the Python app INSIDE the VM and browse its
+http://127.0.0.1:8765 address, or download the Windows kit from the download
+center INSIDE the VM, extract it there, and run INSTALL-README.txt commands as
+administrator. Do not reuse the host IP as the VM listen address.
+
+Inside the VM, these read-only commands identify its computer name and service:
+    $env:COMPUTERNAME
+    Get-Service -Name vf_agent -ErrorAction SilentlyContinue
+
+Compare the VM name with Managed endpoint and the operation result hostname.
+After updating the app source, restart the Python server to load verification
+fixes. Use Verify Windows agent (read-only) before retrying an installation.

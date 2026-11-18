@@ -58,7 +58,7 @@ def guide(page):
         body += block('cli-mac-token', 'Terminal: full uninstall with a token file', MAC_TOKEN)
         body += '<p>Replace the absolute token-file path with your vendor-issued secure token file. Restrict its permissions to the owner (<code>chmod 600 /absolute/path/to/epm-secure-token.txt</code>) and handle it according to your organization’s secret-retention policy. Do not paste tokens into shell history. Follow any vendor dialogs, then rescan this endpoint.</p>'
     else:
-        body += '<p>Read-only Linux identification commands are available below. The installed CyberArk product and its supported uninstall procedure are still unknown, so no Linux removal command is supplied. Package matches are candidates for investigation and do not prove that a package is the EPM agent. No matches can also mean the software was installed outside the package manager.</p>'
+        body += '<p>Read-only Linux identification commands are available below. The console has no automatic Linux removal adapter. Confirm the installed product/version and follow its approved vendor uninstall procedure; no generic removal command is supplied. Package matches are candidates for investigation and do not prove that a package is the EPM agent. No matches can also mean the software was installed outside the package manager.</p>'
         body += block('cli-linux-os', 'Identify the Linux distribution', OS_INFO)
         distro = page.get('distro')
         if distro in ('ubuntu', 'debian'): body += block('cli-linux-deb', 'Inspect DEB package inventory', DEB)

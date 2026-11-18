@@ -3,3 +3,13 @@ __pycache__/
 .venv/
 .env
 *.log
+
+# Private deployment kits, keys and configuration
+[Cc]yberark [Aa]gents/
+private-kits/
+*.config
+*installation key*.txt
+*.msi
+*.pkg
+*.rpm
+*.deb

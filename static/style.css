@@ -13,3 +13,7 @@ pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#f4f6f1;border:1px so
 @media(prefers-reduced-motion:reduce){*{transition:none!important}.card:hover{transform:none}}
 
 [hidden]{display:none!important}.elevation-panel{border-left:4px solid var(--green)}.elevation-panel details{margin-top:18px}.elevation-panel summary{color:var(--green-dark);cursor:pointer;font-size:13px;font-weight:700}.elevation-panel #request-elevation{background:var(--green);color:white}
+
+aside{overflow-y:auto}.reinstall{border-left:4px solid var(--green)}#install-blockers{border-left:3px solid var(--green)}#install-start{margin-top:20px}#package-list .card{display:flex;flex-direction:column}#package-list button{margin-top:auto;align-self:flex-start}#package-list .eyebrow{font-size:9px}
+
+main[data-route="/download-center"] .elevation-panel{display:none}

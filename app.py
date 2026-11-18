@@ -8,6 +8,9 @@ import secrets
 import subprocess
 import threading
 import sys
+import installation
+import tempfile
+import shutil
 import argparse
 import errno
 import shlex
@@ -33,6 +36,7 @@ def elevated():
 def scan():
     if platform.system() == 'Darwin':
         return [{'id': 'mac-epm', 'name': 'CyberArk EPM', 'version': 'See installed application', 'location': str(MAC)}] if MAC.is_file() else []
+    if platform.system() == 'Linux': return installation.existing_linux()
     if platform.system() != 'Windows':
         return []
     import winreg
@@ -51,7 +55,7 @@ def scan():
                             try: return str(winreg.QueryValueEx(key, k)[0])
                             except FileNotFoundError: return ''
                         display = value('DisplayName')
-                        if 'endpoint privilege manager agent' not in display.lower(): continue
+                        if 'endpoint privilege manager agent' not in display.lower() and not ('epm agent' in display.lower() and any(brand in value('Publisher').lower() for brand in ('cyberark','idira'))): continue
                         code = GUID.search(name) or GUID.search(value('UninstallString'))
                         if code:
                             ident = code.group().upper()
@@ -84,6 +88,7 @@ def run_job(args, agent_id):
         result = {'status': 'completed' if success else 'failed', 'exit_code': code, 'registration_present': remaining, 'restart_required': code in (1641, 3010), 'message': 'Selected installation is no longer detected. Restart before reinstalling.' if success else 'Removal was not verified. Review vendor guidance and rescan.'}
     except Exception:
         result = {'status': 'failed', 'message': 'Unable to complete removal or verification. Rescan and review vendor support guidance.'}
+    result['operation'] = 'uninstall'
     with LOCK: JOB = result
 
 
@@ -108,7 +113,7 @@ def elevation_info():
         ps = lambda value: "'" + value.replace("'", "''") + "'"
         arguments = subprocess.list2cmdline([str(Path(__file__).resolve())])
         manual = 'Start-Process -Verb RunAs -FilePath ' + ps(sys.executable) + ' -ArgumentList ' + ps(arguments)
-    elif system == 'Darwin':
+    elif system in ('Darwin','Linux'):
         manual = 'sudo ' + shlex.join([sys.executable, str(Path(__file__).resolve())])
     else:
         manual = ''
@@ -141,6 +146,35 @@ def snapshot(browser=False):
 def start_removal(args, agent_id):
     threading.Thread(target=run_job, args=(args, agent_id), daemon=True).start()
 
+
+def install_preflight():
+    endpoint=installation.host()
+    packages=installation.catalog(endpoint)
+    found=installation.existing(scan)
+    with LOCK: job=dict(JOB)
+    restart=installation.pending_restart() or (job.get('operation')=='uninstall' and job.get('restart_required',False))
+    blockers=[]
+    if found:blockers.append('An existing EPM agent or installation files were detected. Remove the agent first.')
+    if restart:blockers.append('A restart is required. Restart the endpoint before installing.')
+    if job.get('status')=='running' or ELEVATING:blockers.append('Another operation is in progress.')
+    matched=[p for p in packages if p['matched']]
+    if len(matched)!=1:blockers.append('No unique compatible installer is available for this OS version and architecture.')
+    return {'host':endpoint,'packages':packages,'existing_agents':found,'blockers':blockers,'recommended_id':matched[0]['id'] if len(matched)==1 else None,'can_install':not blockers,'elevated':elevated(),'job':job}
+
+def run_install_job(record, endpoint):
+    global JOB
+    try:
+        result=installation.install(record,endpoint,lambda:not installation.existing(scan) and not installation.pending_restart())
+        present=bool(scan())
+        success=result.pop('accepted') and present
+        result.update(status='completed' if success else 'failed',operation='install',registration_present=present,message='Agent installed. Confirm enrollment and policy health in the EPM management console.' if success else 'Installation or activation was not verified. Review the vendor procedure and rescan; do not retry blindly.')
+    except Exception:
+        result={'status':'failed','operation':'install','message':'Installation could not complete. Check package prerequisites, config/key validity and vendor guidance. An incomplete installation may need support.'}
+    with LOCK:JOB=result
+
+def start_install(record,endpoint):
+    threading.Thread(target=run_install_job,args=(record,endpoint),daemon=True).start()
+
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, *_): pass
 
@@ -167,13 +201,19 @@ class Handler(BaseHTTPRequestHandler):
         if not self.trusted(): return self.reply(403, {'error': 'Invalid host'})
         if self.path.startswith('/api/v1/'):
             if not self.api_authorized(): return self.reply(401, {'error': 'Configure EPM_API_KEY and supply a valid Bearer token; browser origins are not accepted.'})
+            if self.path == '/api/v1/packages':
+                try:return self.reply(200, install_preflight())
+                except (OSError, subprocess.SubprocessError):return self.reply(500, {'error':'Unable to safely inspect package compatibility or existing agents.'})
             if self.path == '/api/v1/platforms': return self.reply(200, PAGES)
             if self.path != '/api/v1/status': return self.reply(404, {'error': 'Not found'})
             try: return self.reply(200, snapshot())
-            except OSError: return self.reply(500, {'error': 'Endpoint scan failed'})
+            except (OSError, subprocess.SubprocessError): return self.reply(500, {'error': 'Endpoint scan failed'})
+        if self.path == '/api/packages':
+            try:return self.reply(200, install_preflight())
+            except (OSError, subprocess.SubprocessError):return self.reply(500, {'error':'Unable to safely inspect package compatibility or existing agents.'})
         if self.path == '/api/status':
             try: return self.reply(200, snapshot(browser=True))
-            except OSError: return self.reply(500, {'error': 'Endpoint scan failed'})
+            except (OSError, subprocess.SubprocessError): return self.reply(500, {'error': 'Endpoint scan failed'})
         if self.path == '/catalog.json': return self.reply(200, PAGES)
         if self.path == '/openapi.json':
             return self.reply(200, json.loads((Path(__file__).parent/'openapi.json').read_text(encoding='utf-8')))
@@ -189,6 +229,7 @@ class Handler(BaseHTTPRequestHandler):
             assets = {
                 '/style.css': ('style.css', 'text/css'),
                 '/ui.js': ('ui.js', 'text/javascript'),
+                '/install-ui.js': ('install-ui.js', 'text/javascript'),
                 '/brand/dexcom-logo.png': ('brand/dexcom-logo.png', 'image/png'),
                 '/brand/Gilroy-Medium.woff2': ('brand/Gilroy-Medium.woff2', 'font/woff2'),
                 '/brand/Gilroy-Bold.woff2': ('brand/Gilroy-Bold.woff2', 'font/woff2'),
@@ -203,7 +244,7 @@ class Handler(BaseHTTPRequestHandler):
             size = int(self.headers.get('Content-Length', '0'))
             if not 0 < size <= 2048: raise ValueError()
             if self.headers.get_content_type() != 'application/json': raise ValueError()
-            data = json.loads(self.rfile.read(size))
+            data = json.loads(self.request_body)
             if not isinstance(data, dict) or data.get('confirmation') != 'REQUEST_ADMIN': raise ValueError()
         except (ValueError, TypeError): return self.reply(400, {'error': 'Invalid elevation request'})
         if data.get('hostname') != platform.node(): return self.reply(409, {'error': 'Endpoint changed; refresh and request again.'})
@@ -222,14 +263,64 @@ class Handler(BaseHTTPRequestHandler):
         try: self.reply(202, {'status': 'restarting', 'message': 'UAC approved. Reconnecting to the administrator console.'})
         finally: restart_after_elevation(self.server)
 
+
+    def install_or_download(self, download=False):
+        global JOB
+        try:
+            size=int(self.headers.get('Content-Length','0'))
+            if not 0<size<=2048 or self.headers.get_content_type()!='application/json':raise ValueError()
+            data=json.loads(self.request_body)
+            if not isinstance(data,dict) or data.get('confirmation')!=('DOWNLOAD_KIT' if download else 'INSTALL'):raise ValueError()
+            record=installation.get_record(data.get('package_id'))
+            if download:
+                # Private kits are browser-session-only POST downloads, never public URLs.
+                with tempfile.TemporaryFile() as output:
+                    installation.bundle(record,output)
+                    output.seek(0,2);length=output.tell();output.seek(0)
+                    self.send_response(200)
+                    self.send_header('Content-Type','application/zip')
+                    self.send_header('Content-Length',str(length))
+                    self.send_header('Content-Disposition','attachment; filename="epm-'+record['id']+'-private-kit.zip"')
+                    self.send_header('Cache-Control','no-store')
+                    self.send_header('X-Content-Type-Options','nosniff')
+                    self.end_headers();shutil.copyfileobj(output,self.wfile)
+                return
+            if data.get('hostname')!=platform.node() or data.get('target_platform')!=host_platform():
+                return self.reply(409,{'error':'Endpoint identity mismatch; refresh the workspace.'})
+            if not elevated():return self.reply(403,{'error':'Administrator/root privileges required. Use Request administrator access or the platform launch instructions.'})
+            # Serialize installation/removal preflight and reserve the operation atomically.
+            endpoint=installation.host()
+            if not installation.compatible(record,endpoint):return self.reply(409,{'error':'Selected installer is incompatible with this endpoint.'})
+            with LOCK:
+                if JOB['status']=='running' or ELEVATING:return self.reply(409,{'error':'Another operation is in progress.'})
+                if installation.existing(scan):return self.reply(409,{'error':'Existing agent detected; installation is blocked.'})
+                if installation.pending_restart() or (JOB.get('operation')=='uninstall' and JOB.get('restart_required')):
+                    return self.reply(409,{'error':'Restart this endpoint before installing.'})
+                JOB={'status':'running','operation':'install','message':'Installing the matched agent and applying its paired configuration. Keep the console running.'}
+                start_install(record,endpoint)
+            return self.reply(202,{'status':'running','status_url':'/api/v1/status' if self.path.startswith('/api/v1/') else '/api/status'})
+        except (ValueError,TypeError):return self.reply(400,{'error':'Invalid request or incomplete deployment kit.'})
+        except (OSError,subprocess.SubprocessError):return self.reply(500,{'error':'Cannot safely access the kit or inspect this endpoint.'})
+
     def do_POST(self):
         global JOB
+        # Consume bounded request bodies before early rejection. Closing a socket with
+        # unread POST bytes can reset the connection and discard the error on Windows.
+        try:
+            size=int(self.headers.get('Content-Length','0'))
+            if not 0<size<=8192:return self.reply(400,{'error':'Invalid request size'})
+            self.connection.settimeout(15)
+            self.request_body=self.rfile.read(size)
+            if len(self.request_body)!=size:return self.reply(400,{'error':'Incomplete request'})
+        except (ValueError,OSError):return self.reply(400,{'error':'Unable to read request'})
         if not self.trusted(): return self.reply(403, {'error': 'Invalid host'})
         integration = self.path.startswith('/api/v1/')
         if integration:
             if not self.api_authorized(): return self.reply(401, {'error': 'Invalid API credentials or browser origin'})
         elif self.headers.get('Origin') != 'http://127.0.0.1:8765' or self.headers.get('X-Session') != SESSION:
             return self.reply(403, {'error': 'Invalid session or origin'})
+        if self.path in ('/api/install','/api/v1/install'):return self.install_or_download()
+        if self.path == '/api/packages/download':return self.install_or_download(download=True)
         if self.path == '/api/elevate': return self.handle_elevation()
         if self.path not in ('/api/uninstall', '/api/v1/uninstall'): return self.reply(404, {'error': 'Not found'})
         try:
@@ -237,7 +328,7 @@ class Handler(BaseHTTPRequestHandler):
             if not 0 < size <= 8192: raise ValueError('Invalid request size')
             if self.headers.get_content_type() != 'application/json':
                 return self.reply(415, {'error': 'Content-Type must be application/json'})
-            data = json.loads(self.rfile.read(size))
+            data = json.loads(self.request_body)
             if not isinstance(data, dict): raise ValueError('Invalid request')
             if data.get('confirmation') != 'UNINSTALL': raise ValueError('Type UNINSTALL to confirm')
             target = host_platform()
@@ -251,7 +342,7 @@ class Handler(BaseHTTPRequestHandler):
                 ident = data.get('id')
                 if not isinstance(ident, str) or ident not in [a['id'] for a in scan()]: raise ValueError('Agent no longer detected; rescan')
                 args = command(ident, data.get('token', ''))
-                JOB = {'status': 'running', 'message': 'Vendor uninstall is running. Keep this application open.'}
+                JOB = {'status': 'running', 'operation': 'uninstall', 'message': 'Vendor uninstall is running. Keep this application open.'}
                 start_removal(args, ident)
             self.reply(202, {'status': 'running', 'status_url': '/api/v1/status' if integration else '/api/status'})
         except (ValueError, TypeError): self.reply(400, {'error': 'Invalid request, token, or selection; rescan and confirm.'})

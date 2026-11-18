@@ -122,3 +122,47 @@ configuration. macOS shows a sudo launch command to run after stopping the curre
 password entry happens in Terminal. Linux inventory needs no root access. Organizational
 CyberArk EPM/JIT entitlement requests still go through your established IT workflow; this
 app does not submit approval tickets or automatically grant rights.
+
+## Installation workspace and private download center
+
+Open `/installation` to detect OS version/architecture, inspect existing agents, and select the matching kit.
+Open `/download-center` for confidential support bundles with installer, paired config/key file, and manual instructions.
+Downloading does not need admin privileges. Installing requires Windows UAC-approved console elevation or root on macOS/Linux.
+After uninstall, use the reinstall link and complete required restarts. Existing registrations/files and known pending
+Windows restarts block installation. Reboot state is partly in memory; do not bypass vendor restart instructions by
+restarting only the web server. No automatic uninstall/install chaining occurs.
+
+Keep `Cyberark Agents` beside `webapp`, preserving the supplied directory structure; alternatively set `EPM_AGENT_ROOT`
+to a private local folder before launch. UAC relaunch uses the default relative folder; custom environment configuration
+should be preserved through a manual administrator launch. Never place kits under `static` or commit them. Git exclusions
+cover deployment directories, keys, configs and native package files. The public repository includes source only;
+colleagues must provision their approved private kit library separately. Original files remain unchanged.
+
+Automatic matching is conservative: Windows x64 desktop build 19045+ and Server build 14393+; macOS 14.5+ Intel/Apple silicon
+(as declared in the supplied PKG); exact Linux distro/version mappings from the vendor kit families. Debian, Fedora, Arch,
+AlmaLinux, ARM Linux/Windows and other unmatched versions are not assigned an installer by analogy. Verify vendor
+prerequisites and support status separately. The native installer validates actual prerequisites and config/key validity.
+
+Linux package inventory checks `epm` and the vendor CLI path. macOS checks the vendor app/helper. Windows checks MSI
+registrations and known remaining agent files. Detection errors block installation; these checks do not prove complete
+removal of every driver or file. Reinstall through this workspace means a new install after removing the old agent,
+not an in-place upgrade. Failed activation may leave installed files and blocks a blind retry.
+
+The operation stages only required files in a local temporary directory and removes that staging area afterward.
+Keys/configs are never returned by catalog/status endpoints or logged by the app. Windows/macOS vendor commands still
+pass the installation key to a privileged child process; vendor logs/process inspection can expose it. Downloaded
+ZIPs intentionally contain secrets and must be handled through approved internal channels. macOS extension/Full Disk
+Access approval may still require user interaction or MDM. Windows verification checks registration; confirm enrollment
+and policy health in the EPM console separately. Linux/macOS activation status is checked after installation.
+
+API additions (same bearer authentication and explicit local endpoint confirmation):
+- `GET /api/v1/packages`: redacted catalog, compatibility and preflight blockers.
+- `POST /api/v1/install`: `package_id`, `hostname`, `target_platform`, `confirmation: "INSTALL"`; poll status afterward.
+- Private kit downloads are browser-session-only POST requests, not public download URLs or integration API routes.
+
+Vendor installation references:
+- https://docs.cyberark.com/epm/latest/en/content/installation/windows-installagents.htm
+- https://docs.cyberark.com/epm/latest/en/content/installation/macos-installagents.htm
+- https://docs.cyberark.com/epm/latest/en/content/installation/linux-installagents.htm
+
+Development tests use synthetic kits and mocked installers. No live installation or removal was performed.

@@ -192,6 +192,61 @@
           }
         }
       }
+    },
+    "/api/v1/packages": {
+      "get": {
+        "operationId": "getInstallationPreflight",
+        "summary": "Inspect redacted private package catalog, OS match, existing agents and blockers",
+        "responses": {
+          "200": {
+            "description": "host, packages, existing_agents, blockers, recommended_id, can_install, elevated and job. No key/config content or private source paths."
+          },
+          "401": {
+            "description": "Invalid API credentials"
+          },
+          "500": {
+            "description": "Preflight cannot be completed safely"
+          }
+        }
+      }
+    },
+    "/api/v1/install": {
+      "post": {
+        "operationId": "installConfirmedAgent",
+        "summary": "Install the explicitly confirmed matching private kit on the local endpoint",
+        "description": "Requires administrator/root, no existing agent, no required restart and no concurrent operation. Key/config are read from private storage, never supplied through the API. Obtain operator approval first.",
+        "x-openai-isConsequential": true,
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InstallRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Install accepted; poll /api/v1/status"
+          },
+          "400": {
+            "description": "Invalid confirmation or incomplete kit"
+          },
+          "401": {
+            "description": "Invalid API credentials"
+          },
+          "403": {
+            "description": "Elevation required"
+          },
+          "409": {
+            "description": "Existing agent, mismatch, restart or concurrent operation"
+          },
+          "500": {
+            "description": "Cannot safely inspect endpoint or kit"
+          }
+        }
+      }
     }
   },
   "components": {
@@ -339,6 +394,37 @@
                 "type": "string"
               }
             }
+          }
+        }
+      },
+      "InstallRequest": {
+        "type": "object",
+        "required": [
+          "package_id",
+          "hostname",
+          "target_platform",
+          "confirmation"
+        ],
+        "properties": {
+          "package_id": {
+            "type": "string",
+            "description": "Exact compatible package id from preflight"
+          },
+          "hostname": {
+            "type": "string"
+          },
+          "target_platform": {
+            "type": "string",
+            "enum": [
+              "windows-desktop",
+              "windows-server",
+              "macos",
+              "linux"
+            ]
+          },
+          "confirmation": {
+            "type": "string",
+            "const": "INSTALL"
           }
         }
       }

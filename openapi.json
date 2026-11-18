@@ -60,7 +60,8 @@
               }
             }
           }
-        }
+        },
+        "description": "Legacy explicit host-mode API. To manage the visiting PC use the paired-endpoint API with its capability."
       }
     },
     "/api/v1/platforms": {
@@ -98,7 +99,7 @@
       "post": {
         "operationId": "uninstallConfirmedAgent",
         "summary": "Request confirmed full removal on this endpoint",
-        "description": "Destructive action. Obtain explicit operator approval for the exact hostname and agent. Only one removal runs at a time. Poll status after HTTP 202.",
+        "description": "Legacy explicit host-mode API. To manage the visiting PC use the paired-endpoint API with its capability.",
         "x-openai-isConsequential": true,
         "requestBody": {
           "required": true,
@@ -216,14 +217,15 @@
           "500": {
             "description": "Preflight cannot be completed safely"
           }
-        }
+        },
+        "description": "Legacy explicit host-mode API. To manage the visiting PC use the paired-endpoint API with its capability."
       }
     },
     "/api/v1/install": {
       "post": {
         "operationId": "installConfirmedAgent",
         "summary": "Install the explicitly confirmed matching private kit on the local endpoint",
-        "description": "Requires administrator/root, no existing agent, no required restart and no concurrent operation. Key/config are read from private storage, never supplied through the API. Obtain operator approval first.",
+        "description": "Legacy explicit host-mode API. To manage the visiting PC use the paired-endpoint API with its capability.",
         "x-openai-isConsequential": true,
         "requestBody": {
           "required": true,
@@ -256,6 +258,120 @@
           }
         }
       }
+    },
+    "/api/v1/endpoint/info": {
+      "get": {
+        "operationId": "getPairedEndpointInfo",
+        "summary": "Read paired endpoint connection and hostname",
+        "security": [
+          {
+            "EndpointKey": [],
+            "EndpointCapability": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "connected, hostname and message"
+          },
+          "401": {
+            "description": "Invalid API bearer key"
+          }
+        }
+      }
+    },
+    "/api/v1/endpoint/rpc": {
+      "post": {
+        "operationId": "dispatchPairedEndpointOperation",
+        "summary": "Queue an allowlisted operation on the paired PC, never the portal host",
+        "security": [
+          {
+            "EndpointKey": [],
+            "EndpointCapability": []
+          }
+        ],
+        "x-openai-isConsequential": true,
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "method",
+                  "path"
+                ],
+                "properties": {
+                  "method": {
+                    "type": "string",
+                    "enum": [
+                      "GET",
+                      "POST"
+                    ]
+                  },
+                  "path": {
+                    "type": "string",
+                    "enum": [
+                      "/api/status",
+                      "/api/packages",
+                      "/api/installation-health",
+                      "/api/install",
+                      "/api/uninstall",
+                      "/api/elevate"
+                    ]
+                  },
+                  "body": {
+                    "type": [
+                      "object",
+                      "null"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "request_id queued; poll endpoint result"
+          },
+          "401": {
+            "description": "Invalid API key"
+          },
+          "409": {
+            "description": "Endpoint unavailable, wrong capability or unsupported operation"
+          }
+        }
+      }
+    },
+    "/api/v1/endpoint/result/{request_id}": {
+      "get": {
+        "operationId": "getPairedEndpointResult",
+        "summary": "Poll a response belonging to this paired endpoint capability",
+        "security": [
+          {
+            "EndpointKey": [],
+            "EndpointCapability": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "request_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "done plus result.status and result.body when available"
+          },
+          "403": {
+            "description": "Request belongs to a different endpoint/browser"
+          }
+        }
+      }
     }
   },
   "components": {
@@ -264,6 +380,12 @@
         "type": "http",
         "scheme": "bearer",
         "description": "Set EPM_API_KEY (32+ ASCII characters without whitespace) before starting the server. Separate from the vendor token."
+      },
+      "EndpointCapability": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-Endpoint-Key",
+        "description": "Private capability of an enrolled endpoint; distinct from server API key and vendor tokens"
       }
     },
     "schemas": {

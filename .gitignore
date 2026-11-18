@@ -13,3 +13,9 @@ private-kits/
 *.pkg
 *.rpm
 *.deb
+
+# Endpoint enrollment/device credentials are runtime-only
+*.private.json
+connector.private.tmp
+endpoint-connector.zip
+*.private.tmp

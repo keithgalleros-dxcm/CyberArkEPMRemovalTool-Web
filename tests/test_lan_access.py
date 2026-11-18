@@ -48,12 +48,12 @@ class LanHttpTests(unittest.TestCase):
     def test_login_sets_signed_cookie(self):
         code,_,headers=self.request('/auth/login',{'code':lan_access.ACCESS_CODE})
         self.assertEqual(code,200);self.assertIn('HttpOnly',headers['Set-Cookie']);self.assertIn('SameSite=Strict',headers['Set-Cookie'])
-    def test_authenticated_remote_status_hides_pairing_code(self):
+    def test_authenticated_remote_status_requires_visiting_pc_connector(self):
         code,raw,_=self.request('/api/status',authenticated=True);data=json.loads(raw)
-        self.assertEqual(code,200);self.assertTrue(data['network']['remote']);self.assertNotIn('access_code',data['network']);self.assertFalse(data['elevation']['can_request'])
+        self.assertEqual(code,428);self.assertTrue(data['connector_required']);self.assertNotIn('hostname',data)
     def test_local_status_provides_pairing_code(self):
         with patch.object(app.Handler,'local_client',return_value=True):
-            _,raw,_=self.request('/api/status');self.assertEqual(json.loads(raw)['network']['access_code'],lan_access.ACCESS_CODE)
+            _,raw,_=self.request('/api/status',headers={'Host':'127.0.0.1:8765'});self.assertEqual(json.loads(raw)['network']['access_code'],lan_access.ACCESS_CODE)
     def test_unknown_host_rejected(self):self.assertEqual(self.request('/api/status',authenticated=True,headers={'Host':'evil.example:8765'})[0],403)
     def test_lan_host_rejected_when_disabled(self):
         with patch('lan_access.ADDRESS',''):self.assertEqual(self.request('/api/status',authenticated=True)[0],403)
@@ -61,7 +61,7 @@ class LanHttpTests(unittest.TestCase):
         with patch('app.request_windows_elevation') as launch:
             self.assertEqual(self.request('/api/elevate',{'confirmation':'REQUEST_ADMIN','hostname':'test-server'},authenticated=True)[0],403);launch.assert_not_called()
     def test_cookie_does_not_replace_csrf_session(self):self.assertEqual(self.request('/api/uninstall',{'confirmation':''},authenticated=True,headers={'X-Session':''})[0],403)
-    def test_lan_origin_works_for_authenticated_browser(self):self.assertEqual(self.request('/api/uninstall',{'confirmation':''},authenticated=True)[0],400)
+    def test_lan_browser_cannot_modify_host_without_connector(self):self.assertEqual(self.request('/api/uninstall',{'confirmation':''},authenticated=True)[0],428)
     def test_remote_post_without_cookie_denied(self):self.assertEqual(self.request('/api/uninstall',{'confirmation':''})[0],401)
     def test_api_bearer_stays_independent(self):
         with patch('app.API_KEY','synthetic-api-key-1234567890123456789'):

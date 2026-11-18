@@ -13,9 +13,9 @@ async function loadDeployment(){
 }
 async function downloadDeployment(kit,button){
  const message=$('download-message');button.disabled=true;
- try{if(!state)await refresh();if(!state)throw Error('Connect to the local console first.');
+ try{
  message.textContent='Preparing confidential kit. This download contains the installation key and tenant configuration.';
- const response=await fetch('/api/packages/download',{method:'POST',headers:{'Content-Type':'application/json','X-Session':state.session},body:JSON.stringify({package_id:kit.id,confirmation:'DOWNLOAD_KIT'})});
+ const response=await fetch('/api/packages/download',{method:'POST',headers:{'Content-Type':'application/json','X-Session':state?.session||''},body:JSON.stringify({package_id:kit.id,confirmation:'DOWNLOAD_KIT'})});
  if(!response.ok){const error=await response.json();throw Error(error.error);}
  const blob=await response.blob();const url=URL.createObjectURL(blob);const link=document.createElement('a');link.href=url;link.download='epm-'+kit.id+'-private-kit.zip';document.body.append(link);link.click();link.remove();setTimeout(()=>URL.revokeObjectURL(url),3000);message.textContent='Kit downloaded. Extract it, keep its files together, and follow INSTALL-README.txt on a supported endpoint. Share only through approved internal channels.';
  }catch(error){message.textContent=error.message;}finally{button.disabled=false;}

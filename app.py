@@ -10,6 +10,7 @@ import threading
 import sys
 import lan_access
 import ipaddress
+import endpoint_portal
 import installation
 import tempfile
 import shutil
@@ -203,6 +204,9 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(raw)
 
+    def portal_session(self):
+        return SESSION
+
     def trusted(self):
         allowed={'127.0.0.1:8765'}
         if lan_access.ADDRESS:allowed.add(lan_access.ADDRESS+':8765')
@@ -235,11 +239,16 @@ class Handler(BaseHTTPRequestHandler):
         if not self.trusted(): return self.reply(403, {'error': 'Invalid host'})
         public_assets={'/login','/lan-login.js','/style.css','/brand/dexcom-logo.png','/brand/Gilroy-Medium.woff2','/brand/Gilroy-Bold.woff2'}
         if not self.path.startswith('/api/v1/') and not self.browser_authorized() and self.path not in public_assets:
-            if self.path.startswith('/api/'):return self.reply(401,{'error':'LAN sign-in required','login_url':'/login'})
+            if self.path.startswith(('/api/','/portal/','/endpoint/')):return self.reply(401,{'error':'LAN sign-in required','login_url':'/login'})
             return self.reply(302,b'', 'text/plain',{'Location':'/login'})
+        if endpoint_portal.get(self):return
+        if self.path in endpoint_portal.MANAGED and not endpoint_portal.direct(self):return self.reply(428,{'error':'Connect the endpoint connector on this PC. Portal-host fallback is disabled.','connector_required':True})
         if self.path=='/login':return self.reply(200,(Path(__file__).parent/'static'/'lan-login.html').read_bytes(),'text/html; charset=utf-8')
         if self.path.startswith('/api/v1/'):
             if not self.api_authorized(): return self.reply(401, {'error': 'Configure EPM_API_KEY and supply a valid Bearer token; browser origins are not accepted.'})
+            if self.path.startswith('/api/v1/endpoint/'):
+                if endpoint_portal.get(self,api=True):return
+                return self.reply(404,{'error':'Unknown endpoint API route'})
             if self.path == '/api/v1/packages':
                 try:return self.reply(200, install_preflight())
                 except (OSError, subprocess.SubprocessError):return self.reply(500, {'error':'Unable to safely inspect package compatibility or existing agents.'})
@@ -277,6 +286,7 @@ class Handler(BaseHTTPRequestHandler):
             assets = {
                 '/style.css': ('style.css', 'text/css'),
                 '/ui.js': ('ui.js', 'text/javascript'),
+                '/endpoint-bridge.js': ('endpoint-bridge.js', 'text/javascript'),
                 '/lan-login.js': ('lan-login.js', 'text/javascript'),
                 '/install-ui.js': ('install-ui.js', 'text/javascript'),
                 '/brand/dexcom-logo.png': ('brand/dexcom-logo.png', 'image/png'),
@@ -358,12 +368,13 @@ class Handler(BaseHTTPRequestHandler):
         # unread POST bytes can reset the connection and discard the error on Windows.
         try:
             size=int(self.headers.get('Content-Length','0'))
-            if not 0<size<=8192:return self.reply(400,{'error':'Invalid request size'})
+            if not 0<size<=(1024*1024 if self.path=='/connector/result' else 8192):return self.reply(400,{'error':'Invalid request size'})
             self.connection.settimeout(15)
             self.request_body=self.rfile.read(size)
             if len(self.request_body)!=size:return self.reply(400,{'error':'Incomplete request'})
         except (ValueError,OSError):return self.reply(400,{'error':'Unable to read request'})
         if not self.trusted(): return self.reply(403, {'error': 'Invalid host'})
+        if endpoint_portal.connector(self):return
         if self.path=='/auth/login':
             if not self.origin_allowed():return self.reply(403,{'error':'Invalid origin'})
             try:data=json.loads(self.request_body)
@@ -372,10 +383,18 @@ class Handler(BaseHTTPRequestHandler):
             return self.reply(200,{'status':'signed_in'},extra_headers={'Set-Cookie':lan_access.session_cookie()})
         integration = self.path.startswith('/api/v1/')
         if not integration and not self.browser_authorized():return self.reply(401,{'error':'LAN sign-in required','login_url':'/login'})
+        if self.path.startswith('/endpoint/'):
+            if not self.origin_allowed() or self.headers.get('X-Portal-Session')!=SESSION:return self.reply(403,{'error':'Invalid portal session or origin'})
+            if endpoint_portal.post(self):return
+            return self.reply(404,{'error':'Unknown endpoint route'})
         if integration:
             if not self.api_authorized(): return self.reply(401, {'error': 'Invalid API credentials or browser origin'})
+            if self.path.startswith('/api/v1/endpoint/'):
+                if endpoint_portal.post(self,api=True):return
+                return self.reply(404,{'error':'Unknown endpoint API route'})
         elif not self.origin_allowed() or self.headers.get('X-Session') != SESSION:
             return self.reply(403, {'error': 'Invalid session or origin'})
+        if self.path in endpoint_portal.MANAGED and not endpoint_portal.direct(self):return self.reply(403 if self.path=='/api/elevate' else 428,{'error':'Connect this PC endpoint connector; portal-host operations are disabled.','connector_required':True})
         if self.path in ('/api/install','/api/v1/install'):return self.install_or_download()
         if self.path == '/api/packages/download':return self.install_or_download(download=True)
         if self.path == '/api/elevate': return self.handle_elevation()

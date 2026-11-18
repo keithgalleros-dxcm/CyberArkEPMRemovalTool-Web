@@ -1,276 +1,191 @@
-EXECUTE COMMANDS
-Dexcom / CyberArk EPM web console
-Updated: November 18, 2026
+EXECUTE COMMANDS - PORTAL + VISITING-PC CONNECTOR
+Updated November 19, 2026
 
-This is a reference file. Copy the commands into PowerShell on the machine
-that will host the app. Opening this file does not execute anything.
-The app installs/removes agents on the HOST machine, not the browser device.
-Do not run an agent installation or removal merely to test app startup.
+IMPORTANT TARGETING CHANGE
+The LAN portal uses a connector on each visiting PC/VM. It no longer scans or
+modifies the portal host as a fallback when a remote browser opens the site.
+A browser alone cannot inspect installed agents, services, or UAC state.
+Run the connector INSIDE the VM if the VM is the intended endpoint.
+This guide does not execute commands automatically.
 
-1. SYSTEM REQUIREMENTS AND PREREQUISITES
+PREREQUISITES
+- Python 3.11+ on the portal server AND each endpoint running a connector.
+- Official Windows Python: https://www.python.org/downloads/windows/
+- Windows setup: https://docs.python.org/3/using/windows.html
+- No pip packages, Node.js, Docker, .NET SDK or database needed for Python.
+- Browser JavaScript, cookies and local storage enabled.
+- Portal TCP 8765 reachable from endpoints. No inbound endpoint port needed.
+- Windows UAC/admin approval on the ENDPOINT for agent changes; root/sudo
+  for macOS/Linux installation. Portal admin is only needed for its firewall
+  setup or intentional standalone host operations.
+- Private Cyberark Agents library on the portal (about 409 MiB supplied),
+  plus temporary staging and vendor-required installed-agent disk space.
+- Network connectivity to the configured EPM service and required Linux
+  package repositories. Vendor OS/CPU/prerequisite support still applies.
 
-- Python 3.11 or newer, with its standard library.
-  No pip packages, Node.js, Docker, .NET SDK or database setup is required
-  to run this Python application. Git is optional for cloning/updating.
-- Use a Python release supported by your host OS. On Windows x64 hosts,
-  use a normal 64-bit Python installation accessible to the administrator
-  who will run the console; do not use the embeddable distribution.
-- Windows PowerShell 5.1+ and administrator approval for the Windows
-  Firewall helper and agent installation/removal. The app can scan
-  without elevation and provides a local Windows UAC request button.
-- A current browser with JavaScript and cookies enabled.
-- TCP port 8765 available. LAN mode additionally requires a private IPv4
-  address actually assigned to the host and an appropriate firewall rule.
-- Read access to the private deployment folder. The currently supplied
-  kits occupy approximately 409 MiB; allow additional temporary staging
-  space and the vendor-required disk space for the installed agent.
-  No hardware sizing benchmark has been performed for the web console.
-- The installed agent must be able to reach the configured EPM service.
-  Linux installation may need repository access for dependencies.
-- Root privileges for macOS/Linux agent installation. macOS may require
-  system/network extension and Full Disk Access approval through MDM or
-  system dialogs.
+A. CENTRAL PORTAL ON THE 192.168.1.101 LAPTOP
 
-Runtime requirements differ from agent compatibility. Current kit matching:
-- Windows x64 desktop build 19045+ and Server build 14393+.
-- macOS 14.5+ on Intel or Apple silicon, per the supplied PKG metadata.
-- x64 Linux: Ubuntu 18.04/20.04/22.04/24.04; supported supplied groups for
-  RHEL 7/8/9/10, SUSE Enterprise 12/15, Oracle Linux 7/8/9,
-  Amazon Linux 2/2023, CloudLinux 8, and Rocky Linux 8/9/10.
-Unmatched OS/CPU combinations are not given a substitute installer.
-Native installer prerequisites, key validity and vendor support policies
-still apply. Linux removal remains a manual support workflow.
-
-2. INSTALL OR CHECK PYTHON ON WINDOWS
-
-Check first:
-
-    py -3 --version
-
-If Python is unavailable, obtain an organization-approved Python 3.11+
-installation from:
-    https://www.python.org/downloads/windows/
-
-Official Windows setup/troubleshooting:
-    https://docs.python.org/3/using/windows.html
-
-Use the official install manager or an approved standard 64-bit installer.
-After setup, reopen PowerShell and check the version again. If py is not
-available but python works, replace "py -3" below with "python".
-A Python install manager alone may still need to provision a runtime.
-Do not continue until the version check reports Python 3.11 or newer.
-
-3. REQUIRED DIRECTORY LAYOUT ON THE 192.168.1.101 LAPTOP
-
-    C:\Users\Keith\source\repos\CyberArkEPMRemovalTool\
-        webapp\
-            app.py
-            installation.py
-            lan_access.py
-            Enable-LanFirewall.ps1
-            execute commands.txt
-            static\
-        Cyberark Agents\
-            Windows 64-bit\
-            macOS 64-bit\
-            Linux\...
-
-Keep each installer with its original paired .config and
-"agent installation key.txt" file. Do not move private kits into static.
-Private kits, configs and keys are excluded from the public GitHub repo.
-Provision them separately from your approved private source.
-
-If kits are stored elsewhere, set this before starting the app:
-
-    $env:EPM_AGENT_ROOT = 'C:\ApprovedPrivateLocation\Cyberark Agents'
-
-Replace that example path. Preserve custom environment configuration when
-relaunching as administrator. UAC relaunch is simplest with the default
-directory layout shown above.
-
-4. LAUNCH ON THE LAPTOP AT 192.168.1.101
-
-Perform these steps ON that laptop, not on another workstation.
-Open PowerShell using Run as administrator.
-
+On that laptop:
     Set-Location 'C:\Users\Keith\source\repos\CyberArkEPMRemovalTool\webapp'
-
     py -3 --version
 
-Confirm the IP is assigned to this laptop:
+If py is unavailable but python works, replace py -3 with python throughout.
+Do not continue until Python 3.11+ is available.
 
-    Get-NetIPAddress -AddressFamily IPv4 |
-        Select-Object IPAddress, PrefixLength, InterfaceAlias
+Private directory layout:
+    C:\Users\Keith\source\repos\CyberArkEPMRemovalTool\
+        webapp\app.py
+        webapp\execute commands.txt
+        Cyberark Agents\Windows 64-bit\...
+        Cyberark Agents\macOS 64-bit\...
+        Cyberark Agents\Linux\...
 
-Resolve the same Python executable that will run the app:
+Keep installer/config/key files together. They are excluded from GitHub.
+Optional custom library, set on the portal before launch:
+    $env:EPM_AGENT_ROOT = 'C:\ApprovedPrivateLocation\Cyberark Agents'
+Replace the example path. Endpoints do not need the full private library.
 
+ONE-TIME FIREWALL SETUP (Administrator PowerShell on the portal laptop):
+    Set-Location 'C:\Users\Keith\source\repos\CyberArkEPMRemovalTool\webapp'
     $pythonPath = py -3 -c "import sys; print(sys.executable)"
-
-One-time LAN firewall setup, from this administrator PowerShell:
-
     powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\Enable-LanFirewall.ps1 -LocalAddress 192.168.1.101 -RemoteSubnet 192.168.1.0/24 -PythonPath $pythonPath
 
-The execution-policy option is process-scoped. It does not grant admin
-rights or override enforced organizational policy. The helper permits only
-the specified local address, Python executable, TCP 8765 and LAN subnet.
-It expects a matching /24 subnet. Other network layouts need manual review.
-If the named firewall rule already exists, the helper leaves it unchanged;
-review its address and executable scope before relying on it.
+The helper supports this matching /24, local IP, program and TCP port only.
+It leaves an existing named rule unchanged; review that rule if needed.
+ExecutionPolicy Bypass is process-scoped; it does not grant admin rights.
 
-Start the console:
-
+START THE PORTAL (normal PowerShell is sufficient for remote-PC operations):
+    Set-Location 'C:\Users\Keith\source\repos\CyberArkEPMRemovalTool\webapp'
     py -3 app.py --lan-address 192.168.1.101
 
-Keep this PowerShell window open.
-On the laptop: http://127.0.0.1:8765
-From other LAN devices: http://192.168.1.101:8765
+Keep the terminal open.
+Portal-host local URL: http://127.0.0.1:8765
+LAN portal URL: http://192.168.1.101:8765
 
-For local-only use, skip the firewall setup and launch:
+On the portal host, expand LAN access and managed endpoint at the loopback
+URL to obtain the LAN sign-in code. Share it only with authorized operators.
+Do not reuse the portal IP as a VM's IP. Each VM/PC needs its own networking.
 
-    py -3 app.py
+B. ALTERNATIVE PORTAL ON 192.168.1.100
 
-This local-only command does not expose a LAN listener.
-
-5. ALTERNATIVE: LAUNCH ON THE 192.168.1.100 WORKSTATION
-
-Use this profile only ON the 192.168.1.100 workstation.
-Open PowerShell as administrator.
-
+Use these commands only ON the 192.168.1.100 workstation.
+Administrator PowerShell for one-time firewall setup:
     Set-Location 'C:\Users\iy52648\source\repos\CyberArkEPMRemovalTool\webapp'
-
-    py -3 --version
-
     $pythonPath = py -3 -c "import sys; print(sys.executable)"
-
     powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\Enable-LanFirewall.ps1 -LocalAddress 192.168.1.100 -RemoteSubnet 192.168.1.0/24 -PythonPath $pythonPath
 
+Normal launch:
     py -3 app.py --lan-address 192.168.1.100
+LAN URL: http://192.168.1.100:8765
 
-Browser URL: http://192.168.1.100:8765
-Loopback URL on that workstation: http://127.0.0.1:8765
+C. CONNECT A WINDOWS PC OR VM (FIRST TIME)
 
-Do not use 192.168.1.101 as the listen address on 192.168.1.100 or vice versa.
-Both hosts may run separate instances; each instance manages its own host.
+Do these steps INSIDE the target Windows PC/VM, not on its VMware host.
+1. Verify Python in that PC's PowerShell:
+       py -3 --version
+2. Open the LAN portal URL and sign in with the portal's LAN access code.
+3. Click Download connector for this PC.
+4. Extract endpoint-connector.zip into your private LOCAL user folder.
+5. Run Start connector.cmd by double-click, or from PowerShell in that folder:
+       & '.\Start connector.cmd'
+   Equivalent direct command:
+       py -3 endpoint_connector.py --config connector.private.json
+6. Keep that console open. The connector opens the paired portal in the
+   default browser. If that browser is not signed in, enter the LAN code.
+7. The portal now shows that endpoint's hostname, OS, agent and privileges.
+   Compare the name with this read-only command INSIDE the VM:
+       $env:COMPUTERNAME
+8. Click Request administrator access when needed; approve UAC on THIS PC.
+   The connector relaunches elevated and the portal reconnects to it.
+9. Select the matching platform/workspace. Type the endpoint hostname and
+   explicit INSTALL/UNINSTALL confirmation as required before an operation.
 
-6. LAN SIGN-IN AND ADMINISTRATOR APPROVAL
+No inbound firewall rule is required on the endpoint. The connector makes
+outbound requests to the portal. Do not disable browser network protections.
+A private kit is fetched/staged only for an explicit installation. Starting
+or pairing the connector does not install or remove CyberArk automatically.
 
-- On the HOST, open http://127.0.0.1:8765.
-- Expand "LAN access and managed endpoint".
-- Share the LAN URL and access code only with authorized support operators.
-- On another device, open the host's LAN URL and enter that code.
-- The code changes when the server restarts. Browser LAN cookies expire
-  after eight hours.
-- This is not a Windows password, EPM uninstall token or installation key.
-- HTTP is unencrypted; use only a trusted LAN and approved sharing channels.
-- UAC must be requested and approved locally on the hosting Windows machine.
-  LAN sign-in does not itself grant administrator privileges.
-- API integrations use a separate EPM_API_KEY, not the browser LAN code.
-  API-enabled consoles require a manual administrator relaunch with their
-  intended environment configuration.
+D. MACOS / LINUX ENDPOINT CONNECTOR
 
-7. WORKSPACES AFTER LAUNCH
-
-    /                      Host identity and workspace overview
-    /installation          Match kit, inspect existing agents, install
-    /download-center       Private manual-deployment bundles
-    /windows-desktop       Desktop removal and manual CLI instructions
-    /windows-server        Server removal and manual CLI instructions
-    /macos                 macOS removal and manual CLI instructions
-    /linux                 Linux distro/inventory guidance
-    /integrations          API instructions and OpenAPI schema
-
-Example on the 192.168.1.101 laptop:
-    http://192.168.1.101:8765/installation
-    http://192.168.1.101:8765/download-center
-
-Installation is blocked when an existing agent or required restart is
-detected. After approved removal, restart when required, return to the
-installation workspace, rescan and explicitly confirm installation.
-Starting the web app does not install or remove an agent.
-
-8. MACOS / LINUX LAUNCH REFERENCE
-
-Copy the public webapp source and approved private kit library onto the
-endpoint being managed. Change to the folder containing app.py.
-
-Check Python:
+Download and extract a fresh connector kit using the target PC's browser.
+In that extracted folder:
     python3 --version
+    sh start-connector.sh
 
-Read-only/local launch:
-    python3 app.py
+Equivalent:
+    python3 endpoint_connector.py --config connector.private.json
 
-For approved operations that require root:
+For approved root operations, stop the read-only connector after all jobs
+finish, then use the exact sudo command shown by that endpoint's portal
+privilege panel. General form from the extracted folder:
     pythonPath="$(python3 -c 'import sys; print(sys.executable)')"
-    sudo "$pythonPath" app.py
+    sudo "$pythonPath" endpoint_connector.py --config connector.private.json --resume --no-open-browser
 
-Optional LAN launch, replacing the example with that endpoint's actual
-private IPv4:
-    sudo "$pythonPath" app.py --lan-address 192.168.1.101
+Passwords are entered only in the native terminal/UAC prompt, not the portal.
+macOS may need extension/Full Disk Access approvals. Linux removal remains
+manual; installation is enabled only for the supplied compatible distro kit.
 
-The Windows firewall helper does not run on macOS/Linux. Have the host
-firewall permit only the intended LAN subnet and TCP port.
-No account password is collected by the web app.
+E. PAIRING / STOPPING / UPDATING
 
-9. TROUBLESHOOTING
+- Use a separate freshly downloaded kit for every PC. Enrollment is one-use
+  and expires after 10 minutes. Never reuse/share connector.private.json.
+- Keep the connector console open. No connector means Not connected;
+  the portal never substitutes its own server inventory.
+- Browser pairing is remembered in that browser's local storage. Use Clear
+  pairing on a shared browser. Keep private credentials out of Git/chat.
+- After restarting the PORTAL, reload/sign in and download/run a fresh kit
+  on each endpoint to re-enroll. The registry is currently in memory.
+- Do not restart the portal or close connectors during agent operations.
+- Wait for operations to finish before Ctrl+C. Closing a browser tab alone
+  does not stop the connector or an operation.
+- HTTP is unencrypted. Use a trusted LAN and approved file/code sharing.
 
-"Python not found" / "py not recognized":
-    Reopen PowerShell after installing Python, or use:
-        python --version
-        python app.py --lan-address 192.168.1.101
-    For the firewall variable when using python:
-        $pythonPath = python -c "import sys; print(sys.executable)"
-    Substitute the host's actual IP and use the matching profile above.
+F. TROUBLESHOOTING
 
-"Unable to bind configured address/port":
-    Check the host's IPv4 address and existing listener:
+Only the host appears / old host behavior persists:
+    Stop the old Python portal after its operations finish, update the full
+    webapp source and restart it. Reload the browser. Connect each visiting
+    PC using a new kit. Old running Python processes do not reload code.
+
+No connector / offline:
+    Start it on that PC; keep its console open. Check outbound access to
+    the portal IP/8765. Re-enroll if the portal restarted or the ticket expired.
+
+Unable to bind portal:
+    Check ON THE PORTAL:
         Get-NetIPAddress -AddressFamily IPv4
         Get-NetTCPConnection -LocalPort 8765 -State Listen
-    Stop the previous console with Ctrl+C in its own terminal.
-    Do not stop unrelated Python processes.
+    Stop the old app in its own terminal; do not kill unrelated processes.
 
-LAN URL fails but loopback works:
-    Confirm --lan-address is present, both devices can reach each other,
-    and the firewall rule matches the IP, subnet and Python executable:
-        Get-NetFirewallRule -Name 'Dexcom-EPM-Console-LAN-8765'
-        Get-NetFirewallRule -Name 'Dexcom-EPM-Console-LAN-8765' | Get-NetFirewallAddressFilter
-        Get-NetFirewallRule -Name 'Dexcom-EPM-Console-LAN-8765' | Get-NetFirewallApplicationFilter
+No matching installer / existing agent / restart required:
+    Rescan the paired endpoint. Remove the old agent using the approved
+    workflow and reboot that endpoint when required. Restarting only the
+    connector is not an OS reboot. No substitute distro/CPU kit is selected.
 
-"No compatible deployment kit":
-    Check the private folder location, companion key/config files, OS
-    version and CPU architecture. Use the download center for approved
-    manual support; do not substitute a different distro's installer.
+Windows installation appears incomplete:
+    Use Verify Windows agent (read-only). It checks the expected MSI product
+    and version, vf_agent.exe component and running vf_agent service.
+    MSI acceptance alone is not reported as a healthy installation.
+    Confirm policy/enrollment in EPM separately. Do not blindly retry.
 
-"Existing agent detected" / "Restart required":
-    Complete the approved removal/restart workflow before installation.
-    Restarting only the web server is not a substitute for an OS restart.
+Manual installation support:
+    Download center supplies the private installer/config/key bundle and
+    INSTALL-README.txt. Run those instructions on the actual intended PC.
 
-"Administrator/root privileges required":
-    Use the local UAC action on Windows or approved sudo launch on macOS/Linux.
-    If credentials or policy approval are unavailable, contact IT.
+G. OPTIONAL STANDALONE MODE
 
-10. STOPPING AND UPDATING
+For intentional management of the same PC running app.py:
+    py -3 app.py
+    http://127.0.0.1:8765
+This loopback-only mode does not require the reverse connector. It does not
+make a remote browser PC the target. LAN portal URLs always require pairing.
 
-Wait until installation/removal has finished, then press Ctrl+C in the
-console window. Closing a browser tab alone does not stop Python.
-After updating source, restart the console to load server-side changes.
-Running these instructions locally does not remotely start another laptop.
+H. API
 
-Source repository:
-    https://github.com/keithgalleros-dxcm/CyberArkEPMRemovalTool-Web
+Paired endpoint APIs require EPM_API_KEY plus that authorized endpoint's
+X-Endpoint-Key capability. See README.md, /integrations and openapi.json.
+The legacy native /api/v1/status/install/uninstall APIs are explicitly
+host-scoped for existing integrations; visiting-PC automation must use the
+new /api/v1/endpoint/rpc and endpoint result polling routes.
 
-No live install/removal is required to check whether the web app launches.
-
-VM INSTALLATION TARGET CHECK
-Opening the laptop LAN URL from a bridged VMware VM still controls the laptop.
-To install inside the VM, either run the Python app INSIDE the VM and browse its
-http://127.0.0.1:8765 address, or download the Windows kit from the download
-center INSIDE the VM, extract it there, and run INSTALL-README.txt commands as
-administrator. Do not reuse the host IP as the VM listen address.
-
-Inside the VM, these read-only commands identify its computer name and service:
-    $env:COMPUTERNAME
-    Get-Service -Name vf_agent -ErrorAction SilentlyContinue
-
-Compare the VM name with Managed endpoint and the operation result hostname.
-After updating the app source, restart the Python server to load verification
-fixes. Use Verify Windows agent (read-only) before retrying an installation.
+Source: https://github.com/keithgalleros-dxcm/CyberArkEPMRemovalTool-Web

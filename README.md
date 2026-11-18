@@ -1,276 +1,170 @@
-# EPM Removal Web Console
+# Dexcom CyberArk EPM portal
 
-Python 3.11+ endpoint-local web app, with no third-party dependencies.
+Python 3.11+ portal and endpoint connector, using the standard library only.
 
+## How endpoint detection works
 
-## Setup prerequisites and launch guide
+The LAN portal displays the **PC/VM paired with that browser**, not the computer hosting the portal.
+A normal browser cannot inspect installed software, services or UAC state. Each visiting PC therefore
+needs its own connector. Browser OS hints and source IPs are not used as a substitute for endpoint inventory.
 
-Read **[execute commands.txt](execute%20commands.txt)** for complete prerequisites, exact commands for the
-192.168.1.101 laptop and 192.168.1.100 workstation, LAN sign-in, private kits, and troubleshooting.
-The file is a reference guide; it does not execute commands automatically.
+1. Start the central portal and sign in from the target PC's browser.
+2. Click **Download connector for this PC** and extract the private kit **on that PC/VM**.
+3. Windows: run **Start connector.cmd**. macOS/Linux: run `sh start-connector.sh`.
+4. Keep its console open. The connector opens the paired portal in the default browser and reports
+   its own hostname, OS version, architecture, agent registrations and privileges.
+5. Approve Windows UAC **on that endpoint** when needed. macOS/Linux show local sudo instructions.
+   Installing/removing an agent still requires explicit confirmation and the endpoint hostname.
 
-| Requirement | Details |
+No connector/offline connector means **Not connected**. The portal never silently falls back to the
+web server's agent details or execution context. Connector requests are outbound HTTP(S) to the portal;
+no inbound endpoint firewall port, browser localhost fetch, CORS exception or browser security flag is needed.
+This also works with a bridged VM: launch the connector inside the guest, not in the VMware host terminal.
+
+The intentional standalone mode at `http://127.0.0.1:8765` manages that same PC directly. LAN URLs always
+use endpoint pairing, including when the browser source IP happens to equal the portal's LAN address.
+
+## Requirements
+
+| Component | Requirements |
 | --- | --- |
-| Python | Python 3.11+ supported by the host OS; standard installation, preferably x64 on Windows x64 |
-| Windows shell | PowerShell 5.1+; administrator approval for firewall changes and agent operations |
-| Browser | Current browser with JavaScript and cookies enabled |
-| Dependencies | No pip packages, Node.js, Docker, .NET SDK or database setup needed for this Python app |
-| Deployment data | Approved private `Cyberark Agents` folder beside `webapp`, or configure `EPM_AGENT_ROOT` |
-| Disk space | Supplied private kits occupy about 409 MiB, plus staging space and vendor agent requirements |
-| Network | Free TCP 8765; assigned private IPv4 and scoped firewall rule for LAN; EPM service connectivity for agents |
-| Privileges | Administrator/UAC on Windows; root for macOS/Linux installation; no elevation needed for read-only inventory |
+| Portal | Python 3.11+, readable private deployment library, free TCP 8765 |
+| Each endpoint | Python 3.11+, its own extracted connector kit, outbound access to the portal |
+| Browser | JavaScript, cookies and local storage enabled |
+| Windows privilege changes | Local UAC approval / administrator credentials |
+| macOS/Linux installation | Root/sudo on that endpoint; vendor prerequisites and macOS extension approvals |
+| Dependencies | No pip, Node.js, Docker, .NET SDK or database required for the Python components |
+| Private kit storage | Supplied library about 409 MiB; allow extra temporary staging and vendor installation space |
 
-Python setup: [official Windows downloads](https://www.python.org/downloads/windows/)
-and [Windows setup documentation](https://docs.python.org/3/using/windows.html).
-After installing an approved Python release, reopen PowerShell and verify `py -3 --version`.
-If only `python` is available, replace `py -3` with `python` in the examples.
-Web-app runtime requirements and vendor agent compatibility are separate; see the installation section below.
+Python setup: [Windows downloads](https://www.python.org/downloads/windows/) and
+[official setup guidance](https://docs.python.org/3/using/windows.html).
+Read **[execute commands.txt](execute%20commands.txt)** for host paths, exact commands and troubleshooting.
+The public repository does not include tenant installers, installation keys, configurations or enrolled-device credentials.
 
-### Start on the 192.168.1.101 laptop
+## Start the portal on 192.168.1.101
 
-Run these commands **on that laptop**, in **PowerShell as Administrator**:
+On that laptop, change to the native source folder:
 
 ```powershell
 Set-Location 'C:\Users\Keith\source\repos\CyberArkEPMRemovalTool\webapp'
 py -3 --version
+```
+
+One-time firewall setup in an **Administrator PowerShell** session:
+
+```powershell
 $pythonPath = py -3 -c "import sys; print(sys.executable)"
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\Enable-LanFirewall.ps1 -LocalAddress 192.168.1.101 -RemoteSubnet 192.168.1.0/24 -PythonPath $pythonPath
+```
+
+Then start the portal (server elevation is not needed for remote endpoint operations):
+
+```powershell
 py -3 app.py --lan-address 192.168.1.101
 ```
 
-Keep the terminal open. Browse to [loopback](http://127.0.0.1:8765) on the host or
-[192.168.1.101](http://192.168.1.101:8765) from the LAN. Other devices enter the code shown in the host's
-**LAN access and managed endpoint** panel. The firewall helper expects a matching /24 subnet and leaves
-an existing named rule unchanged; review its IP and executable scope when reusing it.
+Keep its terminal open. On the portal laptop, open [loopback](http://127.0.0.1:8765) and expand
+**LAN access and managed endpoint** to obtain the LAN sign-in code. Other PCs visit
+[the portal](http://192.168.1.101:8765), sign in and connect their own endpoint connector.
+The firewall helper supports the specified matching /24 and leaves an existing named rule unchanged.
 
-### Start on the 192.168.1.100 workstation
+For the 192.168.1.100 workstation, use `C:\Users\iy52648\source\repos\CyberArkEPMRemovalTool\webapp`
+and change `-LocalAddress` / `--lan-address` to `192.168.1.100`.
+Do not assign the server's IP to a VM or another PC.
 
-Use the same steps **on that workstation**, changing the project path to
-`C:\Users\iy52648\source\repos\CyberArkEPMRemovalTool\webapp` and both `-LocalAddress` and
-`--lan-address` to `192.168.1.100`. The subnet remains `192.168.1.0/24` for this network.
-Each instance manages its hosting machine; a browser on another device does not change that target.
+## Private deployment library and installation
 
-### Fresh public checkout
+Keep the approved **Cyberark Agents** folder beside **webapp**, preserving the paired installer,
+`.config` and `agent installation key.txt` files. A custom library uses `EPM_AGENT_ROOT` on the portal.
+Endpoint connectors do not need a copy of the entire library. Only the selected compatible kit is
+downloaded privately when an installation is explicitly requested. Staged files are removed afterward.
+Windows read-only health verification downloads only the MSI, not the installation key/config.
 
-Clone or download this repository into a new folder, then run commands from the folder containing `app.py`.
-For a fresh Windows checkout with Git installed (use a new destination folder):
+The installation workspace detects the connector endpoint's OS/version/CPU and existing agents.
+Existing installations, known required restarts and missing elevation block installation. It supports
+fresh installation after approved removal, not an in-place upgrade. Restart the endpoint when required;
+restarting only the portal/connector is not an OS restart. No uninstall/install chaining happens automatically.
 
-```powershell
-git clone https://github.com/keithgalleros-dxcm/CyberArkEPMRemovalTool-Web.git CyberArkEPMRemovalTool-Web
-Set-Location .\CyberArkEPMRemovalTool-Web
-py -3 --version
-py -3 app.py
-```
+Current matching: Windows x64 desktop build 19045+ / Server build 14393+; supplied universal macOS PKG
+requires macOS 14.5+; Linux x64 uses the exact provided distro families and Ubuntu LTS versions.
+Unmatched Debian/Fedora/Arch/AlmaLinux or ARM Windows/Linux systems are not assigned an installer by analogy.
+Native installer prerequisites, key validity and vendor support requirements still apply.
+Linux automatic removal is not enabled; inventory and approved manual removal guidance remain available.
 
-This starts local-only mode. Use the LAN steps above with this checkout’s actual path when needed.
-The public source does **not** include tenant installers, installation keys or configurations.
-Provision the approved private kit library separately and set `EPM_AGENT_ROOT` if it is not in the default sibling folder.
-Do not copy deployment secrets into `static` or commit them. Starting Python does not start an agent installation.
+Windows completion requires the selected MSI ProductCode/version, its vf_agent.exe component file, and
+a running vf_agent service. An accepted but unhealthy/unverified installation returns `attention_required`
+with the actual endpoint hostname. Use **Verify Windows agent (read-only)** without rerunning installation.
+Windows enrollment/policy health must still be confirmed in EPM. macOS/Linux activation status is checked;
+macOS extensions and Full Disk Access may need local interaction or MDM.
 
-## Pages
+## Download center and standalone utility
 
-| Page | Function |
-| --- | --- |
-| `/` | Platform overview and local endpoint identity |
-| `/windows-server` | Server maintenance guidance and Windows MSI removal |
-| `/windows-desktop` | Workstation MSI removal |
-| `/macos` | Installed CyberArk EPM helper with full removal |
-| `/linux` | Linux distro chooser and OS identification |
-| `/linux/{distro}` | Ubuntu, Debian, RHEL, Rocky, AlmaLinux, Fedora, SUSE, Arch, or other distro readiness |
-| `/integrations` | API setup and AI integration guide |
-| `/installation` | Existing-agent checks, OS matching and private-kit installation |
-| `/download-center` | Confidential manual deployment bundles |
+The download center provides confidential manual kits to authorized portal users, including installer,
+paired config/key and `INSTALL-README.txt`. Downloading is separate from installation and does not grant admin rights.
+[Windows standalone removal utility](https://github.com/keithgalleros-dxcm/CyberArkEPMRemovalTool-Web/releases/tag/windows-v1.1.0)
+is also available. It is the existing unsigned portable desktop tool, with release checksums, not a packaged connector.
 
-Linux removal pages provide manual guidance; no automatic Linux removal adapter is enabled.
-The installation workspace supports the supplied Linux kits only when distro/version and architecture match.
-Windows Server and Desktop share Windows Installer commands; the page must match the Windows product type.
+## API and AI integrations
 
-## Run
+Import [openapi.json](openapi.json). A paired-endpoint API call needs both:
 
-Run Python on the endpoint you intend to manage. LAN browsers control that hosting endpoint;
-opening a page from another device does not retarget installation/removal to the browser device.
-Windows: open PowerShell as administrator in this folder and run `python app.py`.
-macOS: use `sudo /absolute/path/to/trusted/python3 app.py`.
-Linux: `python3 app.py` for read-only inventory; approved agent installation requires a root launch.
-Open http://127.0.0.1:8765. Non-elevated Windows/macOS sessions support scanning only.
-Keep the process running until removal finishes. Do not expose the console through a tunnel or proxy.
+- `Authorization: Bearer <EPM_API_KEY>` configured on the portal.
+- `X-Endpoint-Key: <authorized endpoint capability>` provisioned privately from its connector setup.
 
-Review the agent, provide the vendor secure token if self-defense requires it, and type UNINSTALL.
-Windows requests full MSI removal with no automatic restart. macOS invokes the vendor helper with `-full`.
-The console never forcibly deletes services, drivers, registry keys or files.
-Verification checks the selected MSI registration or macOS helper, not every artifact on the endpoint.
-Plan a restart before reinstalling. Server removal requires maintenance planning; macOS may show vendor dialogs.
+Never paste either credential into chat, URLs or logs. Connector credentials are not EPM installation/uninstall tokens.
 
-## AI and API integrations
-
-Import [openapi.json](openapi.json) into a tool that can reach the endpoint-local service.
-Cloud AI tools cannot reach a colleague's loopback address; use a connector running on that endpoint.
-
-Generate a key with `python -c "import secrets; print(secrets.token_urlsafe(32))"`.
-Set `EPM_API_KEY` in the server environment before starting. Use 32+ ASCII characters without whitespace.
-Configure the same key in the local client. This key is separate from the vendor EPM secure token.
-Do not commit keys, place them in URLs, or include vendor tokens in prompts or logs.
-API access is disabled when the variable is unset. Restart the server to rotate the key.
-
-| Method | Route | Purpose |
+| Method | Endpoint | Purpose |
 | --- | --- | --- |
-| GET | `/api/v1/status` | Endpoint, distro, agents, privileges, operation status |
-| GET | `/api/v1/platforms` | Platform and distro page catalog |
-| POST | `/api/v1/uninstall` | Explicitly confirmed removal |
+| GET | `/api/v1/endpoint/info` | Whether the paired endpoint is connected; its hostname |
+| POST | `/api/v1/endpoint/rpc` | Queue an allowlisted operation for that endpoint |
+| GET | `/api/v1/endpoint/result/{request_id}` | Poll the response for that endpoint request |
 
-Send `Authorization: Bearer <key>` on integration requests. POST also requires `Content-Type: application/json`.
-Browser Origin headers are rejected on integration routes; the UI uses a separate origin/session check.
-Removal body: `id`, `hostname`, `target_platform`, `confirmation: "UNINSTALL"`, optional `token`.
-Read status and obtain explicit operator approval for the exact hostname and agent first.
-HTTP 202 means accepted; poll `/api/v1/status` until `job.status` is `completed` or `failed`.
-Operation state is in memory; there is no durable history, queue, or cross-process coordination.
-Only one removal runs at a time. Do not blindly retry POST after an uncertain response: check status first.
+RPC body: `method` (`GET` or `POST`), `path` (an allowlisted endpoint API path), and optional object `body`.
+Supported paths: `/api/status`, `/api/packages`, `/api/installation-health`, `/api/elevate`, `/api/install`, `/api/uninstall`.
+Read operations must use GET; install/uninstall/elevation use POST. Obtain operator approval before mutations.
+Installer selection and hostname/confirmation validation happen again on the endpoint. UAC occurs there.
+A queued RPC is not proof of installation success. Read the native operation result and poll `/api/status` for its job.
+Never blindly retry a timed-out mutation; rescan first because the operation may have started.
 
-Use `python examples/client.py` for read-only status. For removal use:
-`python examples/client.py --uninstall "<exact-agent-id>" --hostname "<exact-hostname>" --with-token`.
-The client requires confirmation and privately prompts for the vendor token.
+The legacy `/api/v1/status`, `/api/v1/packages`, `/api/v1/install`, `/api/v1/uninstall` routes remain
+**explicit host-mode APIs** for existing integrations. They do not infer the browser PC. Use the paired-endpoint
+API above for visiting PCs. The LAN GUI cannot use legacy browser routes to fall back to the portal host.
 
-## Windows standalone download
+## Pairing, security and operational limits
 
-[Portable Windows x64 v1.1.0](https://github.com/keithgalleros-dxcm/CyberArkEPMRemovalTool-Web/releases/tag/windows-v1.1.0).
-The Windows pages provide the same download link. The release contains the existing desktop utility,
-not a packaged Python server. Extract and run the EXE as administrator. The binary is unsigned.
-Compare the ZIP and EXE SHA-256 hashes against the release checksum file before running.
-Original source: [CyberArkEPMRemovalTool](https://github.com/keithgalleros-dxcm/CyberArkEPMRemovalTool).
-No end-to-end removal has been tested for this web version or on Windows Server.
+- Enrollment tickets are one-use and expire after 10 minutes. Connector ZIPs contain no CyberArk installers,
+  tenant config or installation key, but their enrollment/device config is private. Never share/reuse kits across PCs.
+- Each endpoint gets a separate credential and browser capability. Commands are allowlisted, consumed once,
+  and are not arbitrary shell commands. Requests/results are isolated by endpoint and browser capability.
+- Keep `connector.private.json` private. Run one connector instance per endpoint. A replacement instance
+  invalidates the older polling instance; active operations block ordinary replacement.
+- Portal registry, jobs and relay results are in memory. After a portal restart, reload/sign in and download
+  a fresh connector kit to re-enroll. Do not restart the portal or close connectors during active operations.
+- Paired browsers may remember their endpoint capability. Clear pairing on shared browsers. Only the PC
+  where the connector actually runs supplies inventory; moving a private kit to another PC is not supported.
+- LAN sign-in remains separate. LAN codes rotate on portal restart and cookies expire after eight hours.
+  HTTP is unencrypted; use only a trusted LAN. HTTPS can be used with appropriately deployed transport.
+- No agent installation/removal happens merely by starting the connector. Administrative approval is local.
+  Organizational CyberArk JIT entitlement requests still go through IT, not automatic account-rights changes.
+- Vendor command lines/logs can expose installation tokens to privileged inspection. Temporary MSI logging
+  hides specified properties; raw staging logs are deleted and only numeric diagnostics are returned.
+- The stdlib server and relay have not been load-tested for enterprise-scale deployment.
 
 ## Validation
 
-`python -m unittest discover -s tests -v`
-`node --check static/ui.js` (optional; Node is not needed to run the app).
-CI runs mocked tests on Windows, macOS and Linux. Tests never uninstall software.
-Validate actual removal on disposable approved endpoints. Tokens are not persisted or logged by this app,
-but privileged process inspection and vendor logs may expose tokens passed on vendor command lines.
+```text
+python -m unittest discover -s tests -q
+node tests/check_endpoint_bridge.mjs
+node --check static/endpoint-bridge.js
+node --check static/ui.js
+node --check static/install-ui.js
+```
 
-## Vendor references
+Node is optional for syntax checks, not required to run portal/connector. CI runs mocked checks on Windows,
+macOS and Linux. Tests simulate VM identity routing and verify no host fallback. No live install/removal or
+UAC approval was performed during development. Real multi-PC/VM and browser interaction still needs validation.
 
-- [Windows uninstall](https://docs.cyberark.com/epm/latest/en/content/installation/windows-uninstallagents.htm)
-- [macOS uninstall](https://docs.cyberark.com/epm/latest/en/content/installation/macos-uninstallagents.htm)
-
-This is an endpoint-local tool, not a central fleet-management server.
-
-## Manual terminal commands
-
-Windows Server/Desktop pages include a process-scoped PowerShell invocation using
-`powershell.exe -NoProfile -ExecutionPolicy Bypass`, a removal script with a masked
-vendor-token prompt, and CMD examples with and without a token. Replace the MSI GUID
-placeholder before running. Policy bypass does not grant elevation or disable EPM protection.
-macOS includes vendor full-uninstall commands with no token or a token file.
-Linux distro pages include read-only OS and package-inventory commands only; the product
-and vendor uninstall procedure must be identified before supplying a Linux removal command.
-Commands are displayed and copied only. Terminal removals are outside the console’s job tracking.
-Regenerate command sections after editing `manual_commands.py` with `python manual_commands.py`.
-
-## Dexcom visual theme
-
-The console uses the existing Dexcom logo, Gilroy Medium/Bold typography, public-site green (#137D00), charcoal (#161A1D), and white surfaces. Brand assets are served locally, including offline use. Font fallback is Arial/sans-serif. See `static/brand/SOURCES.md` for provenance and ownership. All platform, API, download and CLI workflows are preserved.
-
-## Requesting administrator access
-
-The UI provides a **Request administrator access (UAC)** action on Windows. It calls a
-browser-session-protected local route and asks Windows to relaunch only this app with the
-`runas` verb. An administrator must approve or enter credentials. Cancellation leaves the
-original console available. The browser reconnects after approval and must confirm removal
-separately. Vendor tokens are cleared and never forwarded during relaunch. Account membership
-is unchanged. No UAC prompt is triggered automatically or through the integration API.
-
-The relaunch uses the same trusted Python executable and absolute app path. Use the local
-checkout: an approving administrator may not have access to a network share or user-scoped
-Python installation. If relaunch cannot reconnect, stop any remaining console and use the
-displayed manual launch command. An elevated console runs on the local endpoint until its
-terminal is closed; closing the browser alone does not stop it.
-
-API-enabled instances must be restarted manually by an administrator with their intended
-configuration. macOS shows a sudo launch command to run after stopping the current server;
-password entry happens in Terminal. Linux inventory needs no root access. Organizational
-CyberArk EPM/JIT entitlement requests still go through your established IT workflow; this
-app does not submit approval tickets or automatically grant rights.
-
-## Installation workspace and private download center
-
-Open `/installation` to detect OS version/architecture, inspect existing agents, and select the matching kit.
-Open `/download-center` for confidential support bundles with installer, paired config/key file, and manual instructions.
-Downloading does not need admin privileges. Installing requires Windows UAC-approved console elevation or root on macOS/Linux.
-After uninstall, use the reinstall link and complete required restarts. Existing registrations/files and known pending
-Windows restarts block installation. Reboot state is partly in memory; do not bypass vendor restart instructions by
-restarting only the web server. No automatic uninstall/install chaining occurs.
-
-Keep `Cyberark Agents` beside `webapp`, preserving the supplied directory structure; alternatively set `EPM_AGENT_ROOT`
-to a private local folder before launch. UAC relaunch preserves the LAN address and uses the default relative private-kit folder; custom environment configuration
-should be preserved through a manual administrator launch. Never place kits under `static` or commit them. Git exclusions
-cover deployment directories, keys, configs and native package files. The public repository includes source only;
-colleagues must provision their approved private kit library separately. Original files remain unchanged.
-
-Automatic matching is conservative: Windows x64 desktop build 19045+ and Server build 14393+; macOS 14.5+ Intel/Apple silicon
-(as declared in the supplied PKG); exact Linux distro/version mappings from the vendor kit families. Debian, Fedora, Arch,
-AlmaLinux, ARM Linux/Windows and other unmatched versions are not assigned an installer by analogy. Verify vendor
-prerequisites and support status separately. The native installer validates actual prerequisites and config/key validity.
-
-Linux package inventory checks `epm` and the vendor CLI path. macOS checks the vendor app/helper. Windows checks MSI
-registrations and known remaining agent files. Detection errors block installation; these checks do not prove complete
-removal of every driver or file. Reinstall through this workspace means a new install after removing the old agent,
-not an in-place upgrade. Failed activation may leave installed files and blocks a blind retry.
-
-The operation stages only required files in a local temporary directory and removes that staging area afterward.
-Keys/configs are never returned by catalog/status endpoints or logged by the app. Windows/macOS vendor commands still
-pass the installation key to a privileged child process; vendor logs/process inspection can expose it. Downloaded
-ZIPs intentionally contain secrets and must be handled through approved internal channels. macOS extension/Full Disk
-Access approval may still require user interaction or MDM. Windows verification checks registration; confirm enrollment
-and policy health in the EPM console separately. Linux/macOS activation status is checked after installation.
-
-API additions (same bearer authentication and explicit local endpoint confirmation):
-- `GET /api/v1/packages`: redacted catalog, compatibility and preflight blockers.
-- `POST /api/v1/install`: `package_id`, `hostname`, `target_platform`, `confirmation: "INSTALL"`; poll status afterward.
-- Private kit downloads are browser-session-only POST requests, not public download URLs or integration API routes.
-
-Vendor installation references:
-- https://docs.cyberark.com/epm/latest/en/content/installation/windows-installagents.htm
-- https://docs.cyberark.com/epm/latest/en/content/installation/macos-installagents.htm
-- https://docs.cyberark.com/epm/latest/en/content/installation/linux-installagents.htm
-
-Development tests use synthetic kits and mocked installers. No live installation or removal was performed.
-
-## Optional LAN access
-
-Run `python app.py --lan-address 192.168.1.100` when that private IPv4 address is assigned to the host.
-The app listens separately on loopback and the specified address, port 8765; it does not bind all interfaces.
-Open http://192.168.1.100:8765. On another device, enter the LAN access code shown under **LAN access and
-managed endpoint** in the server’s loopback UI. Codes rotate on process restart; signed HttpOnly/SameSite
-cookies expire after eight hours. Codes are not logged, put in URLs, or saved in the repository. Bearer
-API integration still requires its separately configured key. Host and Origin allowlists remain enforced.
-
-Authenticated LAN operators can view/manage the hosting endpoint and download its private kits.
-They are not managing their browser device. UAC must be requested/approved on the server locally.
-Administrator relaunch preserves the LAN address but rotates browser sign-in sessions.
-HTTP is unencrypted: use a trusted LAN and approved channels for access codes and downloaded kits.
-The default launch remains loopback-only. Windows Firewall must permit TCP 8765 for the configured local
-address from the intended LAN subnet; do not use unrestricted inbound or internet port-forwarding rules.
-
-Windows firewall setup: review and run `Enable-LanFirewall.ps1` from an administrator PowerShell session. The helper scopes access to the configured local address, Python executable and matching /24 subnet; it does not change the network profile.
-LAN bearer clients may use the configured LAN address as their API base URL. Browser cookies do not replace API bearer keys.
-
-## VM targets and Windows installation verification
-
-VMware bridged networking does not make the browser VM the installation target. A browser at
-`http://192.168.1.101:8765` manages the Python process on the machine owning that address. To install
-inside a VM, run Python inside that VM and open its loopback URL, or download a private kit inside
-the VM and follow its INSTALL-README.txt as administrator. Confirm the VM computer name matches
-Managed endpoint before installing. The installation form now requires typing that hostname.
-
-Windows completion requires the selected MSI's exact ProductCode and version, its vf_agent.exe
-component file, and a running vf_agent service. MSI acceptance alone or an unrelated EPM registration
-does not count as complete. An accepted but unverified install returns attention_required with the
-actual execution hostname and Windows verification fields. Restart when required and confirm
-console enrollment separately. Tray visibility is not used as the health test.
-
-Windows installation temporarily enables a verbose MSI log with confidential properties marked
-hidden. The log stays in the private staging directory and is deleted with staging. Only numeric
-MSI error/engine codes and failure flags are returned; raw log lines are not served or retained by
-the app. Installer/debug policy may still put sensitive values in temporary vendor logs.
-
-Use **Verify Windows agent (read-only)** in the installation workspace to inspect the expected product, version, component file and vf_agent service on the host without reinstalling. Compare the returned hostname with the VM computer name.
+Vendor references: [Windows](https://docs.cyberark.com/epm/latest/en/content/installation/windows-installagents.htm),
+[macOS](https://docs.cyberark.com/epm/latest/en/content/installation/macos-installagents.htm),
+[Linux](https://docs.cyberark.com/epm/latest/en/content/installation/linux-installagents.htm).
+Brand sources and ownership are recorded in `static/brand/SOURCES.md`.

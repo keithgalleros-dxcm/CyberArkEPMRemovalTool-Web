@@ -1,0 +1,261 @@
+EXECUTE COMMANDS
+Dexcom / CyberArk EPM web console
+Updated: November 18, 2026
+
+This is a reference file. Copy the commands into PowerShell on the machine
+that will host the app. Opening this file does not execute anything.
+The app installs/removes agents on the HOST machine, not the browser device.
+Do not run an agent installation or removal merely to test app startup.
+
+1. SYSTEM REQUIREMENTS AND PREREQUISITES
+
+- Python 3.11 or newer, with its standard library.
+  No pip packages, Node.js, Docker, .NET SDK or database setup is required
+  to run this Python application. Git is optional for cloning/updating.
+- Use a Python release supported by your host OS. On Windows x64 hosts,
+  use a normal 64-bit Python installation accessible to the administrator
+  who will run the console; do not use the embeddable distribution.
+- Windows PowerShell 5.1+ and administrator approval for the Windows
+  Firewall helper and agent installation/removal. The app can scan
+  without elevation and provides a local Windows UAC request button.
+- A current browser with JavaScript and cookies enabled.
+- TCP port 8765 available. LAN mode additionally requires a private IPv4
+  address actually assigned to the host and an appropriate firewall rule.
+- Read access to the private deployment folder. The currently supplied
+  kits occupy approximately 409 MiB; allow additional temporary staging
+  space and the vendor-required disk space for the installed agent.
+  No hardware sizing benchmark has been performed for the web console.
+- The installed agent must be able to reach the configured EPM service.
+  Linux installation may need repository access for dependencies.
+- Root privileges for macOS/Linux agent installation. macOS may require
+  system/network extension and Full Disk Access approval through MDM or
+  system dialogs.
+
+Runtime requirements differ from agent compatibility. Current kit matching:
+- Windows x64 desktop build 19045+ and Server build 14393+.
+- macOS 14.5+ on Intel or Apple silicon, per the supplied PKG metadata.
+- x64 Linux: Ubuntu 18.04/20.04/22.04/24.04; supported supplied groups for
+  RHEL 7/8/9/10, SUSE Enterprise 12/15, Oracle Linux 7/8/9,
+  Amazon Linux 2/2023, CloudLinux 8, and Rocky Linux 8/9/10.
+Unmatched OS/CPU combinations are not given a substitute installer.
+Native installer prerequisites, key validity and vendor support policies
+still apply. Linux removal remains a manual support workflow.
+
+2. INSTALL OR CHECK PYTHON ON WINDOWS
+
+Check first:
+
+    py -3 --version
+
+If Python is unavailable, obtain an organization-approved Python 3.11+
+installation from:
+    https://www.python.org/downloads/windows/
+
+Official Windows setup/troubleshooting:
+    https://docs.python.org/3/using/windows.html
+
+Use the official install manager or an approved standard 64-bit installer.
+After setup, reopen PowerShell and check the version again. If py is not
+available but python works, replace "py -3" below with "python".
+A Python install manager alone may still need to provision a runtime.
+Do not continue until the version check reports Python 3.11 or newer.
+
+3. REQUIRED DIRECTORY LAYOUT ON THE 192.168.1.101 LAPTOP
+
+    C:\Users\Keith\source\repos\CyberArkEPMRemovalTool\
+        webapp\
+            app.py
+            installation.py
+            lan_access.py
+            Enable-LanFirewall.ps1
+            execute commands.txt
+            static\
+        Cyberark Agents\
+            Windows 64-bit\
+            macOS 64-bit\
+            Linux\...
+
+Keep each installer with its original paired .config and
+"agent installation key.txt" file. Do not move private kits into static.
+Private kits, configs and keys are excluded from the public GitHub repo.
+Provision them separately from your approved private source.
+
+If kits are stored elsewhere, set this before starting the app:
+
+    $env:EPM_AGENT_ROOT = 'C:\ApprovedPrivateLocation\Cyberark Agents'
+
+Replace that example path. Preserve custom environment configuration when
+relaunching as administrator. UAC relaunch is simplest with the default
+directory layout shown above.
+
+4. LAUNCH ON THE LAPTOP AT 192.168.1.101
+
+Perform these steps ON that laptop, not on another workstation.
+Open PowerShell using Run as administrator.
+
+    Set-Location 'C:\Users\Keith\source\repos\CyberArkEPMRemovalTool\webapp'
+
+    py -3 --version
+
+Confirm the IP is assigned to this laptop:
+
+    Get-NetIPAddress -AddressFamily IPv4 |
+        Select-Object IPAddress, PrefixLength, InterfaceAlias
+
+Resolve the same Python executable that will run the app:
+
+    $pythonPath = py -3 -c "import sys; print(sys.executable)"
+
+One-time LAN firewall setup, from this administrator PowerShell:
+
+    powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\Enable-LanFirewall.ps1 -LocalAddress 192.168.1.101 -RemoteSubnet 192.168.1.0/24 -PythonPath $pythonPath
+
+The execution-policy option is process-scoped. It does not grant admin
+rights or override enforced organizational policy. The helper permits only
+the specified local address, Python executable, TCP 8765 and LAN subnet.
+It expects a matching /24 subnet. Other network layouts need manual review.
+If the named firewall rule already exists, the helper leaves it unchanged;
+review its address and executable scope before relying on it.
+
+Start the console:
+
+    py -3 app.py --lan-address 192.168.1.101
+
+Keep this PowerShell window open.
+On the laptop: http://127.0.0.1:8765
+From other LAN devices: http://192.168.1.101:8765
+
+For local-only use, skip the firewall setup and launch:
+
+    py -3 app.py
+
+This local-only command does not expose a LAN listener.
+
+5. ALTERNATIVE: LAUNCH ON THE 192.168.1.100 WORKSTATION
+
+Use this profile only ON the 192.168.1.100 workstation.
+Open PowerShell as administrator.
+
+    Set-Location 'C:\Users\iy52648\source\repos\CyberArkEPMRemovalTool\webapp'
+
+    py -3 --version
+
+    $pythonPath = py -3 -c "import sys; print(sys.executable)"
+
+    powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\Enable-LanFirewall.ps1 -LocalAddress 192.168.1.100 -RemoteSubnet 192.168.1.0/24 -PythonPath $pythonPath
+
+    py -3 app.py --lan-address 192.168.1.100
+
+Browser URL: http://192.168.1.100:8765
+Loopback URL on that workstation: http://127.0.0.1:8765
+
+Do not use 192.168.1.101 as the listen address on 192.168.1.100 or vice versa.
+Both hosts may run separate instances; each instance manages its own host.
+
+6. LAN SIGN-IN AND ADMINISTRATOR APPROVAL
+
+- On the HOST, open http://127.0.0.1:8765.
+- Expand "LAN access and managed endpoint".
+- Share the LAN URL and access code only with authorized support operators.
+- On another device, open the host's LAN URL and enter that code.
+- The code changes when the server restarts. Browser LAN cookies expire
+  after eight hours.
+- This is not a Windows password, EPM uninstall token or installation key.
+- HTTP is unencrypted; use only a trusted LAN and approved sharing channels.
+- UAC must be requested and approved locally on the hosting Windows machine.
+  LAN sign-in does not itself grant administrator privileges.
+- API integrations use a separate EPM_API_KEY, not the browser LAN code.
+  API-enabled consoles require a manual administrator relaunch with their
+  intended environment configuration.
+
+7. WORKSPACES AFTER LAUNCH
+
+    /                      Host identity and workspace overview
+    /installation          Match kit, inspect existing agents, install
+    /download-center       Private manual-deployment bundles
+    /windows-desktop       Desktop removal and manual CLI instructions
+    /windows-server        Server removal and manual CLI instructions
+    /macos                 macOS removal and manual CLI instructions
+    /linux                 Linux distro/inventory guidance
+    /integrations          API instructions and OpenAPI schema
+
+Example on the 192.168.1.101 laptop:
+    http://192.168.1.101:8765/installation
+    http://192.168.1.101:8765/download-center
+
+Installation is blocked when an existing agent or required restart is
+detected. After approved removal, restart when required, return to the
+installation workspace, rescan and explicitly confirm installation.
+Starting the web app does not install or remove an agent.
+
+8. MACOS / LINUX LAUNCH REFERENCE
+
+Copy the public webapp source and approved private kit library onto the
+endpoint being managed. Change to the folder containing app.py.
+
+Check Python:
+    python3 --version
+
+Read-only/local launch:
+    python3 app.py
+
+For approved operations that require root:
+    pythonPath="$(python3 -c 'import sys; print(sys.executable)')"
+    sudo "$pythonPath" app.py
+
+Optional LAN launch, replacing the example with that endpoint's actual
+private IPv4:
+    sudo "$pythonPath" app.py --lan-address 192.168.1.101
+
+The Windows firewall helper does not run on macOS/Linux. Have the host
+firewall permit only the intended LAN subnet and TCP port.
+No account password is collected by the web app.
+
+9. TROUBLESHOOTING
+
+"Python not found" / "py not recognized":
+    Reopen PowerShell after installing Python, or use:
+        python --version
+        python app.py --lan-address 192.168.1.101
+    For the firewall variable when using python:
+        $pythonPath = python -c "import sys; print(sys.executable)"
+    Substitute the host's actual IP and use the matching profile above.
+
+"Unable to bind configured address/port":
+    Check the host's IPv4 address and existing listener:
+        Get-NetIPAddress -AddressFamily IPv4
+        Get-NetTCPConnection -LocalPort 8765 -State Listen
+    Stop the previous console with Ctrl+C in its own terminal.
+    Do not stop unrelated Python processes.
+
+LAN URL fails but loopback works:
+    Confirm --lan-address is present, both devices can reach each other,
+    and the firewall rule matches the IP, subnet and Python executable:
+        Get-NetFirewallRule -Name 'Dexcom-EPM-Console-LAN-8765'
+        Get-NetFirewallRule -Name 'Dexcom-EPM-Console-LAN-8765' | Get-NetFirewallAddressFilter
+        Get-NetFirewallRule -Name 'Dexcom-EPM-Console-LAN-8765' | Get-NetFirewallApplicationFilter
+
+"No compatible deployment kit":
+    Check the private folder location, companion key/config files, OS
+    version and CPU architecture. Use the download center for approved
+    manual support; do not substitute a different distro's installer.
+
+"Existing agent detected" / "Restart required":
+    Complete the approved removal/restart workflow before installation.
+    Restarting only the web server is not a substitute for an OS restart.
+
+"Administrator/root privileges required":
+    Use the local UAC action on Windows or approved sudo launch on macOS/Linux.
+    If credentials or policy approval are unavailable, contact IT.
+
+10. STOPPING AND UPDATING
+
+Wait until installation/removal has finished, then press Ctrl+C in the
+console window. Closing a browser tab alone does not stop Python.
+After updating source, restart the console to load server-side changes.
+Running these instructions locally does not remotely start another laptop.
+
+Source repository:
+    https://github.com/keithgalleros-dxcm/CyberArkEPMRemovalTool-Web
+
+No live install/removal is required to check whether the web app launches.

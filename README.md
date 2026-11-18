@@ -2,6 +2,71 @@
 
 Python 3.11+ endpoint-local web app, with no third-party dependencies.
 
+
+## Setup prerequisites and launch guide
+
+Read **[execute commands.txt](execute%20commands.txt)** for complete prerequisites, exact commands for the
+192.168.1.101 laptop and 192.168.1.100 workstation, LAN sign-in, private kits, and troubleshooting.
+The file is a reference guide; it does not execute commands automatically.
+
+| Requirement | Details |
+| --- | --- |
+| Python | Python 3.11+ supported by the host OS; standard installation, preferably x64 on Windows x64 |
+| Windows shell | PowerShell 5.1+; administrator approval for firewall changes and agent operations |
+| Browser | Current browser with JavaScript and cookies enabled |
+| Dependencies | No pip packages, Node.js, Docker, .NET SDK or database setup needed for this Python app |
+| Deployment data | Approved private `Cyberark Agents` folder beside `webapp`, or configure `EPM_AGENT_ROOT` |
+| Disk space | Supplied private kits occupy about 409 MiB, plus staging space and vendor agent requirements |
+| Network | Free TCP 8765; assigned private IPv4 and scoped firewall rule for LAN; EPM service connectivity for agents |
+| Privileges | Administrator/UAC on Windows; root for macOS/Linux installation; no elevation needed for read-only inventory |
+
+Python setup: [official Windows downloads](https://www.python.org/downloads/windows/)
+and [Windows setup documentation](https://docs.python.org/3/using/windows.html).
+After installing an approved Python release, reopen PowerShell and verify `py -3 --version`.
+If only `python` is available, replace `py -3` with `python` in the examples.
+Web-app runtime requirements and vendor agent compatibility are separate; see the installation section below.
+
+### Start on the 192.168.1.101 laptop
+
+Run these commands **on that laptop**, in **PowerShell as Administrator**:
+
+```powershell
+Set-Location 'C:\Users\Keith\source\repos\CyberArkEPMRemovalTool\webapp'
+py -3 --version
+$pythonPath = py -3 -c "import sys; print(sys.executable)"
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\Enable-LanFirewall.ps1 -LocalAddress 192.168.1.101 -RemoteSubnet 192.168.1.0/24 -PythonPath $pythonPath
+py -3 app.py --lan-address 192.168.1.101
+```
+
+Keep the terminal open. Browse to [loopback](http://127.0.0.1:8765) on the host or
+[192.168.1.101](http://192.168.1.101:8765) from the LAN. Other devices enter the code shown in the host's
+**LAN access and managed endpoint** panel. The firewall helper expects a matching /24 subnet and leaves
+an existing named rule unchanged; review its IP and executable scope when reusing it.
+
+### Start on the 192.168.1.100 workstation
+
+Use the same steps **on that workstation**, changing the project path to
+`C:\Users\iy52648\source\repos\CyberArkEPMRemovalTool\webapp` and both `-LocalAddress` and
+`--lan-address` to `192.168.1.100`. The subnet remains `192.168.1.0/24` for this network.
+Each instance manages its hosting machine; a browser on another device does not change that target.
+
+### Fresh public checkout
+
+Clone or download this repository into a new folder, then run commands from the folder containing `app.py`.
+For a fresh Windows checkout with Git installed (use a new destination folder):
+
+```powershell
+git clone https://github.com/keithgalleros-dxcm/CyberArkEPMRemovalTool-Web.git CyberArkEPMRemovalTool-Web
+Set-Location .\CyberArkEPMRemovalTool-Web
+py -3 --version
+py -3 app.py
+```
+
+This starts local-only mode. Use the LAN steps above with this checkout’s actual path when needed.
+The public source does **not** include tenant installers, installation keys or configurations.
+Provision the approved private kit library separately and set `EPM_AGENT_ROOT` if it is not in the default sibling folder.
+Do not copy deployment secrets into `static` or commit them. Starting Python does not start an agent installation.
+
 ## Pages
 
 | Page | Function |
@@ -13,17 +78,20 @@ Python 3.11+ endpoint-local web app, with no third-party dependencies.
 | `/linux` | Linux distro chooser and OS identification |
 | `/linux/{distro}` | Ubuntu, Debian, RHEL, Rocky, AlmaLinux, Fedora, SUSE, Arch, or other distro readiness |
 | `/integrations` | API setup and AI integration guide |
+| `/installation` | Existing-agent checks, OS matching and private-kit installation |
+| `/download-center` | Confidential manual deployment bundles |
 
-Linux pages provide guidance only. The Linux CyberArk product and version have not been identified;
-no Linux removal adapter or arbitrary package removal command is enabled.
+Linux removal pages provide manual guidance; no automatic Linux removal adapter is enabled.
+The installation workspace supports the supplied Linux kits only when distro/version and architecture match.
 Windows Server and Desktop share Windows Installer commands; the page must match the Windows product type.
 
 ## Run
 
-Run on the endpoint you intend to manage. A browser cannot remove software from other computers.
+Run Python on the endpoint you intend to manage. LAN browsers control that hosting endpoint;
+opening a page from another device does not retarget installation/removal to the browser device.
 Windows: open PowerShell as administrator in this folder and run `python app.py`.
 macOS: use `sudo /absolute/path/to/trusted/python3 app.py`.
-Linux: `python3 app.py` for distro identification and guidance; root is unnecessary for those features.
+Linux: `python3 app.py` for read-only inventory; approved agent installation requires a root launch.
 Open http://127.0.0.1:8765. Non-elevated Windows/macOS sessions support scanning only.
 Keep the process running until removal finishes. Do not expose the console through a tunnel or proxy.
 
@@ -133,7 +201,7 @@ Windows restarts block installation. Reboot state is partly in memory; do not by
 restarting only the web server. No automatic uninstall/install chaining occurs.
 
 Keep `Cyberark Agents` beside `webapp`, preserving the supplied directory structure; alternatively set `EPM_AGENT_ROOT`
-to a private local folder before launch. UAC relaunch uses the default relative folder; custom environment configuration
+to a private local folder before launch. UAC relaunch preserves the LAN address and uses the default relative private-kit folder; custom environment configuration
 should be preserved through a manual administrator launch. Never place kits under `static` or commit them. Git exclusions
 cover deployment directories, keys, configs and native package files. The public repository includes source only;
 colleagues must provision their approved private kit library separately. Original files remain unchanged.

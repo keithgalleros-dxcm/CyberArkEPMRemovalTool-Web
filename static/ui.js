@@ -1,0 +1,9 @@
+const $=id=>document.getElementById(id);let state=null;let busy=false;
+function enable(){$('remove').disabled=busy||!state||!state.elevated||!state.agents.length||state.job.status==='running'||$('confirm').value!=='UNINSTALL';}
+function detail(){const a=state?.agents.find(x=>x.id===$('agent').value);$('details').textContent=a?`${a.name} • ${a.version}
+${a.id}
+${a.location||'Location not registered'}`:'No supported installation detected.';enable();}
+async function refresh(){try{const r=await fetch('/api/status');state=await r.json();if(!r.ok)throw Error(state.error);const selected=$('agent').value;$('agent').replaceChildren();for(const a of state.agents){const o=document.createElement('option');o.value=a.id;o.textContent=a.name;$('agent').append(o);}if(state.agents.some(a=>a.id===selected))$('agent').value=selected;$('host').textContent=state.hostname;$('os').textContent=state.platform;$('privilege').textContent=state.elevated?'Administrator / root':'Read-only · elevation required';$('connection').textContent='● Connected locally';$('status').textContent=JSON.stringify(state.job,null,2);detail();}catch(e){state=null;$('connection').textContent='Disconnected';$('status').textContent=e.message;enable();}}
+$('scan').onclick=refresh;$('agent').onchange=detail;$('confirm').oninput=enable;
+$('remove').onclick=async()=>{busy=true;enable();const token=$('token').value;$('token').value='';try{const r=await fetch('/api/uninstall',{method:'POST',headers:{'Content-Type':'application/json','X-Session':state.session},body:JSON.stringify({id:$('agent').value,token,confirmation:$('confirm').value})});const body=await r.json();if(!r.ok)throw Error(body.error);$('confirm').value='';await refresh();}catch(e){$('status').textContent=e.message;}finally{busy=false;enable();}};
+refresh();setInterval(()=>{if(state?.job.status==='running')refresh();},2000);

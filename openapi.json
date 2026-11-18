@@ -321,6 +321,24 @@
                 "type": "boolean"
               }
             }
+          },
+          "elevation": {
+            "type": "object",
+            "description": "Local privilege guidance. UAC requests require a browser session and are unavailable to the integration API.",
+            "properties": {
+              "method": {
+                "type": "string"
+              },
+              "can_request": {
+                "type": "boolean"
+              },
+              "pending": {
+                "type": "boolean"
+              },
+              "manual_command": {
+                "type": "string"
+              }
+            }
           }
         }
       }

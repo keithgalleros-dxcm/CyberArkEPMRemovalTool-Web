@@ -101,3 +101,24 @@ Regenerate command sections after editing `manual_commands.py` with `python manu
 ## Dexcom visual theme
 
 The console uses the existing Dexcom logo, Gilroy Medium/Bold typography, public-site green (#137D00), charcoal (#161A1D), and white surfaces. Brand assets are served locally, including offline use. Font fallback is Arial/sans-serif. See `static/brand/SOURCES.md` for provenance and ownership. All platform, API, download and CLI workflows are preserved.
+
+## Requesting administrator access
+
+The UI provides a **Request administrator access (UAC)** action on Windows. It calls a
+browser-session-protected local route and asks Windows to relaunch only this app with the
+`runas` verb. An administrator must approve or enter credentials. Cancellation leaves the
+original console available. The browser reconnects after approval and must confirm removal
+separately. Vendor tokens are cleared and never forwarded during relaunch. Account membership
+is unchanged. No UAC prompt is triggered automatically or through the integration API.
+
+The relaunch uses the same trusted Python executable and absolute app path. Use the local
+checkout: an approving administrator may not have access to a network share or user-scoped
+Python installation. If relaunch cannot reconnect, stop any remaining console and use the
+displayed manual launch command. An elevated console runs on the local endpoint until its
+terminal is closed; closing the browser alone does not stop it.
+
+API-enabled instances must be restarted manually by an administrator with their intended
+configuration. macOS shows a sudo launch command to run after stopping the current server;
+password entry happens in Terminal. Linux inventory needs no root access. Organizational
+CyberArk EPM/JIT entitlement requests still go through your established IT workflow; this
+app does not submit approval tickets or automatically grant rights.

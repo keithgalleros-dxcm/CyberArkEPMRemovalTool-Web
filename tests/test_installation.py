@@ -10,7 +10,7 @@ HOST={'system':'Windows','architecture':'x86_64','version':'10.0.26100','build':
 
 class KitFixture(unittest.TestCase):
     def setUp(self):
-        self.tmp=tempfile.TemporaryDirectory();self.addCleanup(self.tmp.cleanup);self.root=Path(self.tmp.name)
+        self.tmp=tempfile.TemporaryDirectory();self.addCleanup(self.tmp.cleanup);self.root=Path(self.tmp.name).resolve()
         folder=self.root/'Windows 64-bit';folder.mkdir()
         (folder/'VFAgentSetupX64.msi').write_bytes(b'fake-installer-for-tests')
         (folder/installation.CONFIGS['windows']).write_text('synthetic-configuration')

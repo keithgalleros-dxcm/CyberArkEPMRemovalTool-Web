@@ -150,7 +150,13 @@ class Handler(BaseHTTPRequestHandler):
         if self.path in PAGES:
             name, kind = PAGES[self.path]['file'], 'text/html; charset=utf-8'
         else:
-            assets = {'/style.css': ('style.css', 'text/css'), '/ui.js': ('ui.js', 'text/javascript')}
+            assets = {
+                '/style.css': ('style.css', 'text/css'),
+                '/ui.js': ('ui.js', 'text/javascript'),
+                '/brand/dexcom-logo.png': ('brand/dexcom-logo.png', 'image/png'),
+                '/brand/Gilroy-Medium.woff2': ('brand/Gilroy-Medium.woff2', 'font/woff2'),
+                '/brand/Gilroy-Bold.woff2': ('brand/Gilroy-Bold.woff2', 'font/woff2'),
+            }
             if self.path not in assets: return self.reply(404, {'error': 'Not found'})
             name, kind = assets[self.path]
         self.reply(200, (Path(__file__).parent/'static'/name).read_bytes(), kind)

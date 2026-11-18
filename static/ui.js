@@ -1,7 +1,7 @@
 const $=id=>document.getElementById(id);
 let state=null, busy=false, page=null;
 const route=document.querySelector('main').dataset.route;
-for(const link of document.querySelectorAll('nav a')){if(link.getAttribute('href')===route)link.setAttribute('aria-current','page');}
+for(const link of document.querySelectorAll('nav a')){if(link.getAttribute('href')===route||(link.getAttribute('href')==='/linux'&&route.startsWith('/linux/')))link.setAttribute('aria-current','page');}
 function matches(){return page?.kind==='removal'&&state?.target_platform===page.target&&state.removal_supported;}
 function enable(){if(!$('remove'))return;$('remove').disabled=busy||!matches()||!state.elevated||!state.agents.length||state.job.status==='running'||$('confirm').value!=='UNINSTALL';}
 function detail(){if(!$('agent'))return;const a=state?.agents.find(x=>x.id===$('agent').value);$('details').textContent=a?`${a.name} • ${a.version}\n${a.id}\n${a.location||'Location not registered'}`:'No supported installation detected.';enable();}

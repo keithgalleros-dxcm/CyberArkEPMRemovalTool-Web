@@ -97,3 +97,7 @@ Linux distro pages include read-only OS and package-inventory commands only; the
 and vendor uninstall procedure must be identified before supplying a Linux removal command.
 Commands are displayed and copied only. Terminal removals are outside the console’s job tracking.
 Regenerate command sections after editing `manual_commands.py` with `python manual_commands.py`.
+
+## Dexcom visual theme
+
+The console uses the existing Dexcom logo, Gilroy Medium/Bold typography, public-site green (#137D00), charcoal (#161A1D), and white surfaces. Brand assets are served locally, including offline use. Font fallback is Arial/sans-serif. See `static/brand/SOURCES.md` for provenance and ownership. All platform, API, download and CLI workflows are preserved.

@@ -1,40 +1,87 @@
-# CyberArk EPM Removal Web Console
+# EPM Removal Web Console
 
-Python 3.11+ local web application for Windows and macOS. No third-party dependencies.
-Run **on the endpoint being managed**; the browser cannot remove software from other computers.
+Python 3.11+ endpoint-local web app, with no third-party dependencies.
 
-## Start
+## Pages
 
-Windows: open PowerShell as Administrator, change to this folder, then run `python app.py`.
-macOS: change to this folder, then run `sudo /absolute/path/to/python3 app.py` using a trusted Python installation.
-Open http://127.0.0.1:8765 in a browser on that same endpoint. Stop with Ctrl+C only after removal completes.
-Without elevation the console supports scanning only. Do not expose this service through a proxy or tunnel.
+| Page | Function |
+| --- | --- |
+| `/` | Platform overview and local endpoint identity |
+| `/windows-server` | Server maintenance guidance and Windows MSI removal |
+| `/windows-desktop` | Workstation MSI removal |
+| `/macos` | Installed CyberArk EPM helper with full removal |
+| `/linux` | Linux distro chooser and OS identification |
+| `/linux/{distro}` | Ubuntu, Debian, RHEL, Rocky, AlmaLinux, Fedora, SUSE, Arch, or other distro readiness |
+| `/integrations` | API setup and AI integration guide |
 
-Review the selected installation, supply the vendor secure token if required, type UNINSTALL, then select Uninstall.
-Windows uses both machine registry views, MSI full uninstall and no automatic restart.
-macOS uses `/Applications/CyberArk EPM.app/Contents/Helpers/CyberArkEPMUninstall -full`.
-No forced service, driver, registry or file cleanup is performed.
+Linux pages provide guidance only. The Linux CyberArk product and version have not been identified;
+no Linux removal adapter or arbitrary package removal command is enabled.
+Windows Server and Desktop share Windows Installer commands; the page must match the Windows product type.
 
-Tokens are not persisted or logged by this app. Vendor command lines necessarily pass tokens to the child process;
-privileged process inspection and vendor logging may expose them. Vendor output is discarded by the app.
-Verification checks the selected MSI registration or macOS helper, not every file, service or driver.
-Restart before reinstalling. macOS may require interaction with vendor dialogs.
+## Run
 
-## Workspaces
+Run on the endpoint you intend to manage. A browser cannot remove software from other computers.
+Windows: open PowerShell as administrator in this folder and run `python app.py`.
+macOS: use `sudo /absolute/path/to/trusted/python3 app.py`.
+Linux: `python3 app.py` for distro identification and guidance; root is unnecessary for those features.
+Open http://127.0.0.1:8765. Non-elevated Windows/macOS sessions support scanning only.
+Keep the process running until removal finishes. Do not expose the console through a tunnel or proxy.
 
-Primary: `\\192.168.1.101\Users\Keith\source\repos\CyberArkEPMRemovalTool\webapp`
-Secondary: `C:\Users\iy52648\source\repos\CyberArkEPMRemovalTool\webapp`
-Edit primary first. Keep `.git`, caches and runtime state separate.
+Review the agent, provide the vendor secure token if self-defense requires it, and type UNINSTALL.
+Windows requests full MSI removal with no automatic restart. macOS invokes the vendor helper with `-full`.
+The console never forcibly deletes services, drivers, registry keys or files.
+Verification checks the selected MSI registration or macOS helper, not every artifact on the endpoint.
+Plan a restart before reinstalling. Server removal requires maintenance planning; macOS may show vendor dialogs.
 
-## Checks
+## AI and API integrations
+
+Import [openapi.json](openapi.json) into a tool that can reach the endpoint-local service.
+Cloud AI tools cannot reach a colleague's loopback address; use a connector running on that endpoint.
+
+Generate a key with `python -c "import secrets; print(secrets.token_urlsafe(32))"`.
+Set `EPM_API_KEY` in the server environment before starting. Use 32+ ASCII characters without whitespace.
+Configure the same key in the local client. This key is separate from the vendor EPM secure token.
+Do not commit keys, place them in URLs, or include vendor tokens in prompts or logs.
+API access is disabled when the variable is unset. Restart the server to rotate the key.
+
+| Method | Route | Purpose |
+| --- | --- | --- |
+| GET | `/api/v1/status` | Endpoint, distro, agents, privileges, operation status |
+| GET | `/api/v1/platforms` | Platform and distro page catalog |
+| POST | `/api/v1/uninstall` | Explicitly confirmed removal |
+
+Send `Authorization: Bearer <key>` on integration requests. POST also requires `Content-Type: application/json`.
+Browser Origin headers are rejected on integration routes; the UI uses a separate origin/session check.
+Removal body: `id`, `hostname`, `target_platform`, `confirmation: "UNINSTALL"`, optional `token`.
+Read status and obtain explicit operator approval for the exact hostname and agent first.
+HTTP 202 means accepted; poll `/api/v1/status` until `job.status` is `completed` or `failed`.
+Operation state is in memory; there is no durable history, queue, or cross-process coordination.
+Only one removal runs at a time. Do not blindly retry POST after an uncertain response: check status first.
+
+Use `python examples/client.py` for read-only status. For removal use:
+`python examples/client.py --uninstall "<exact-agent-id>" --hostname "<exact-hostname>" --with-token`.
+The client requires confirmation and privately prompts for the vendor token.
+
+## Windows standalone download
+
+[Portable Windows x64 v1.1.0](https://github.com/keithgalleros-dxcm/CyberArkEPMRemovalTool-Web/releases/tag/windows-v1.1.0).
+The Windows pages provide the same download link. The release contains the existing desktop utility,
+not a packaged Python server. Extract and run the EXE as administrator. The binary is unsigned.
+Compare the ZIP and EXE SHA-256 hashes against the release checksum file before running.
+Original source: [CyberArkEPMRemovalTool](https://github.com/keithgalleros-dxcm/CyberArkEPMRemovalTool).
+No end-to-end removal has been tested for this web version or on Windows Server.
+
+## Validation
 
 `python -m unittest discover -s tests -v`
-CI runs mocked adapter and HTTP security tests on Windows, macOS and Linux. No tests uninstall software.
-Actual removal requires validation on disposable Windows/macOS endpoints with vendor-approved tokens.
+`node --check static/ui.js` (optional; Node is not needed to run the app).
+CI runs mocked tests on Windows, macOS and Linux. Tests never uninstall software.
+Validate actual removal on disposable approved endpoints. Tokens are not persisted or logged by this app,
+but privileged process inspection and vendor logs may expose tokens passed on vendor command lines.
 
 ## Vendor references
 
-- https://docs.cyberark.com/epm/latest/en/content/installation/macos-uninstallagents.htm
-- https://docs.cyberark.com/epm/latest/en/content/installation/windows-uninstallagents.htm
+- [Windows uninstall](https://docs.cyberark.com/epm/latest/en/content/installation/windows-uninstallagents.htm)
+- [macOS uninstall](https://docs.cyberark.com/epm/latest/en/content/installation/macos-uninstallagents.htm)
 
-This is a local administrative utility, not a central fleet-management server.
+This is an endpoint-local tool, not a central fleet-management server.

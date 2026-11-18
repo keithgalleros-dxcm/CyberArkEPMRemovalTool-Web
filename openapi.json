@@ -1,0 +1,329 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "EPM Removal Console API",
+    "version": "0.2.0",
+    "description": "Endpoint-local API for local AI connectors. Obtain operator confirmation before removal. Linux provides guidance only."
+  },
+  "servers": [
+    {
+      "url": "http://127.0.0.1:8765"
+    }
+  ],
+  "security": [
+    {
+      "EndpointKey": []
+    }
+  ],
+  "paths": {
+    "/api/v1/status": {
+      "get": {
+        "operationId": "getEndpointStatus",
+        "summary": "Read local endpoint identity, agents and operation status",
+        "responses": {
+          "200": {
+            "description": "Endpoint status",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Status"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Invalid API credentials or browser origin",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Scan failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/platforms": {
+      "get": {
+        "operationId": "listPlatformPages",
+        "summary": "List platform and distro guidance pages",
+        "responses": {
+          "200": {
+            "description": "Page catalog keyed by URL path",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "object"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Invalid API credentials",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/uninstall": {
+      "post": {
+        "operationId": "uninstallConfirmedAgent",
+        "summary": "Request confirmed full removal on this endpoint",
+        "description": "Destructive action. Obtain explicit operator approval for the exact hostname and agent. Only one removal runs at a time. Poll status after HTTP 202.",
+        "x-openai-isConsequential": true,
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UninstallRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "400": {
+            "description": "Invalid body, agent, token or confirmation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Invalid API credentials or browser origin",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Elevation required or invalid host",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Endpoint identity mismatch or operation already running",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "JSON Content-Type required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Platform removal unsupported",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Endpoint access failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "202": {
+            "description": "Accepted, not yet complete. Poll status_url.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": {
+                      "const": "running"
+                    },
+                    "status_url": {
+                      "const": "/api/v1/status"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "EndpointKey": {
+        "type": "http",
+        "scheme": "bearer",
+        "description": "Set EPM_API_KEY (32+ ASCII characters without whitespace) before starting the server. Separate from the vendor token."
+      }
+    },
+    "schemas": {
+      "Error": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "string"
+          }
+        }
+      },
+      "UninstallRequest": {
+        "type": "object",
+        "required": [
+          "id",
+          "hostname",
+          "target_platform",
+          "confirmation"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Exact agent id from status"
+          },
+          "hostname": {
+            "type": "string",
+            "description": "Exact hostname from status confirmed by operator"
+          },
+          "target_platform": {
+            "type": "string",
+            "enum": [
+              "windows-server",
+              "windows-desktop",
+              "macos"
+            ]
+          },
+          "confirmation": {
+            "type": "string",
+            "const": "UNINSTALL"
+          },
+          "token": {
+            "type": "string",
+            "maxLength": 4096,
+            "writeOnly": true,
+            "description": "Optional vendor secure token. Never store in prompts or logs."
+          }
+        }
+      },
+      "Status": {
+        "type": "object",
+        "properties": {
+          "platform": {
+            "type": "string"
+          },
+          "target_platform": {
+            "type": "string"
+          },
+          "hostname": {
+            "type": "string"
+          },
+          "elevated": {
+            "type": "boolean"
+          },
+          "api_enabled": {
+            "type": "boolean"
+          },
+          "removal_supported": {
+            "type": "boolean"
+          },
+          "distribution": {
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "agents": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "version": {
+                  "type": "string"
+                },
+                "location": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "job": {
+            "type": "object",
+            "description": "Current in-memory operation; resets on restart. Poll until completed or failed.",
+            "properties": {
+              "status": {
+                "type": "string",
+                "enum": [
+                  "idle",
+                  "running",
+                  "completed",
+                  "failed"
+                ]
+              },
+              "exit_code": {
+                "type": "integer"
+              },
+              "message": {
+                "type": "string"
+              },
+              "registration_present": {
+                "type": "boolean"
+              },
+              "restart_required": {
+                "type": "boolean"
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
